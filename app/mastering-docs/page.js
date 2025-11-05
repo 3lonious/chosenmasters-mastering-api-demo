@@ -12,9 +12,15 @@ function Section({ title, children, defaultOpen = false }) {
         className="w-full flex items-center justify-between px-4 py-3 text-left"
       >
         <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        <span className="text-gray-500 text-xl leading-none">{open ? "−" : "+"}</span>
+        <span className="text-gray-500 text-xl leading-none">
+          {open ? "−" : "+"}
+        </span>
       </button>
-      {open && <div className="px-4 pb-4 space-y-3 text-sm text-gray-700">{children}</div>}
+      {open && (
+        <div className="px-4 pb-4 space-y-3 text-sm text-gray-700">
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -125,46 +131,84 @@ if (data.mastered && data.url) {
   // document.getElementById('mastered-preview').src = data.url;
 }`;
 
+/* --------------------- UPDATED POLLING SAMPLE (IMPORTANT) --------------------- */
 const CODE_AUDIO = `const API_KEY = process.env.CM_API_KEY;
 
-const res = await fetch(
-  'https://chosenmasters.com/api/b2b/mastering/' + jobId + '/audio?intensity=all',
-  {
-    mode: 'cors',
-    headers: { 'x-api-key': API_KEY },
+/**
+ * Poll intensities until:
+ * 1) ALL requestedLevels are available, OR
+ * 2) ~30s after the first playable CloudFront URL appears (grace window).
+ */
+async function pollMasteredIntensities(jobId, { pollMs = 3000, graceMs = 30000 } = {}) {
+  let firstPlayableAt = null;
+  let requested = null;
+
+  // Utility sleep
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  while (true) {
+    const res = await fetch(
+      'https://chosenmasters.com/api/b2b/mastering/' + jobId + '/audio?intensity=all',
+      {
+        mode: 'cors',
+        headers: { 'x-api-key': API_KEY },
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error('Unable to load mastered intensities');
+    }
+
+    const data = await res.json();
+
+    // Establish requestedLevels once (fallback to 1..5 if not present)
+    if (!requested) {
+      requested = Array.isArray(data.requestedLevels) && data.requestedLevels.length
+        ? data.requestedLevels.slice()
+        : [1, 2, 3, 4, 5];
+    }
+
+    const intensities = Array.isArray(data.intensities) ? data.intensities : [];
+    const playable = intensities.filter((i) => i.available && i.url);
+    const ready = new Set(playable.map((i) => i.level));
+
+    // Mark when CloudFront first becomes playable
+    if (playable.length && !firstPlayableAt) {
+      firstPlayableAt = Date.now();
+    }
+
+    // Stop if all requested levels are ready
+    const allReady = requested.every((lvl) => ready.has(lvl));
+    if (allReady) {
+      return data; // all requested intensities are available
+    }
+
+    // Or stop after grace window once CF is first playable
+    if (firstPlayableAt && Date.now() - firstPlayableAt >= graceMs) {
+      return data; // good enough for UI; others will warm shortly
+    }
+
+    await wait(pollMs);
   }
-);
-
-if (!res.ok) {
-  throw new Error('Unable to load mastered intensities');
 }
 
-const data = await res.json();
+// Usage:
+const result = await pollMasteredIntensities(jobId);
+console.log('Original file:', result.originalUrl);
+console.log('Requested levels:', result.requestedLevels);
+console.log('Available levels:', result.availableLevels);
+console.log('All intensities:', result.intensities);
 
-console.log('Original file:', data.originalUrl);
-console.log('Requested levels:', data.requestedLevels);
-console.log('Available levels:', data.availableLevels);
-console.log('All intensities:', data.intensities);
-if (data.expectedKey) {
-  console.log('Deliverable key:', data.expectedKey);
-}
-if (data.expectedUrl) {
-  console.log('CloudFront URL:', data.expectedUrl);
-}
+const preferred =
+  (result.intensities || []).find((i) => i.level === 3 && i.available && i.url) ||
+  (result.intensities || []).find((i) => i.available && i.url);
 
-const playable = (data.intensities || []).filter(
-  (item) => item.available && item.url
-);
-
-if (!playable.length) {
-  console.log('Mastered previews still rendering—poll again in ~10 seconds.');
-}
-
-const level3 = playable.find((item) => item.level === 3) || playable[0];
-
-if (level3?.url) {
-  console.log('Play preferred master at:', level3.url);
+if (!preferred) {
+  console.log('Mastered previews still warming. Keep polling until ready.');
+} else {
+  console.log('Play preferred master at:', preferred.url);
 }`;
+/* ----------------------------------------------------------------------------- */
 
 export default function MasteringDocsPage() {
   return (
@@ -177,14 +221,19 @@ export default function MasteringDocsPage() {
           Mastering integration guide
         </h1>
         <p className="text-gray-600">
-          Authenticate requests with your API key. Each song submission costs one credit. Credit rates start at $0.50 and decrease to $0.14 at higher tiers. Mastered files stay on our CloudFront CDN for 30 days—download anything you need to keep beyond that window.
+          Authenticate requests with your API key. Each song submission costs
+          one credit. Credit rates start at $0.50 and decrease to $0.14 at
+          higher tiers. Mastered files stay on our CloudFront CDN for 30
+          days—download anything you need to keep beyond that window.
         </p>
       </header>
 
       <Section title="Environment configuration" defaultOpen>
         <p>
-          Create a <code className="font-mono text-xs">.env.local</code> file in the project root before running the demo. The
-          variables below mirror the production configuration so you can make authenticated requests against the live API.
+          Create a <code className="font-mono text-xs">.env.local</code> file in
+          the project root before running the demo. The variables below mirror
+          the production configuration so you can make authenticated requests
+          against the live API.
         </p>
         <CodeBlock
           label=".env.local"
@@ -193,122 +242,230 @@ PARENT_BASE_URL=https://chosenmasters.com
 NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         />
         <p>
-          Keep <code className="font-mono text-xs">CM_API_KEY</code> private—expose it only in server-side routes or scripts
-          that proxy requests. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code> variables are safe to surface in the
-          browser and power the waveform previews inside this documentation site.
+          Keep <code className="font-mono text-xs">CM_API_KEY</code>{" "}
+          private—expose it only in server-side routes or scripts that proxy
+          requests. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code>{" "}
+          variables are safe to surface in the browser and power the waveform
+          previews inside this documentation site.
         </p>
       </Section>
 
       <Section title="How the B2B flow works" defaultOpen>
         <ol className="list-decimal pl-5 space-y-2">
           <li>
-            Authenticate every request with the API key provisioned to your business account. The live key shown below is automatically injected into the code samples when you are signed in.
+            Authenticate every request with the API key provisioned to your
+            business account. The live key shown below is automatically injected
+            into the code samples when you are signed in.
           </li>
           <li>
-            Request a pre-signed upload URL and PUT your mix directly to S3. The object key returned is already namespaced to your tenant—no extra flags required.
+            Request a pre-signed upload URL and PUT your mix directly to S3. The
+            object key returned is already namespaced to your tenant—no extra
+            flags required.
           </li>
           <li>
-            Call <code className="font-mono text-xs">POST /api/b2b/mastering</code> with that <code className="font-mono text-xs">s3Key</code> to enqueue mastering. This deducts one mastering credit immediately and stamps the job with <code className="font-mono text-xs">type: &quot;b2b&quot;</code>, bypassing the retail purchase verification flow.
+            Call{" "}
+            <code className="font-mono text-xs">POST /api/b2b/mastering</code>{" "}
+            with that <code className="font-mono text-xs">s3Key</code> to
+            enqueue mastering. This deducts one mastering credit immediately and
+            stamps the job with{" "}
+            <code className="font-mono text-xs">type: &quot;b2b&quot;</code>,
+            bypassing the retail purchase verification flow.
           </li>
           <li>
-            Poll <code className="font-mono text-xs">GET /api/b2b/mastering/:id</code> or <code className="font-mono text-xs">GET /api/b2b/mastering/:id/audio</code> until the mastered assets are ready. Failed jobs automatically refund their credit so you can retry the upload.
+            Poll{" "}
+            <code className="font-mono text-xs">
+              GET /api/b2b/mastering/:id
+            </code>{" "}
+            or{" "}
+            <code className="font-mono text-xs">
+              GET /api/b2b/mastering/:id/audio
+            </code>{" "}
+            until the mastered assets are ready. If the engine returns{" "}
+            <code className="font-mono text-xs">202 Accepted</code>, begin audio
+            polling while CloudFront warms the signed URLs.
           </li>
         </ol>
         <p>
-          Expect <span className="font-mono text-xs">401</span> for missing or invalid API keys and <span className="font-mono text-xs">403</span> when a tenant runs out of credits. Any other non-2xx response indicates the request never reached the mastering engine and should be retried after addressing the returned error message.
+          Expect <span className="font-mono text-xs">401</span> for missing or
+          invalid API keys and <span className="font-mono text-xs">403</span>{" "}
+          when a tenant runs out of credits. Any other non-2xx response
+          indicates the request never reached the mastering engine and should be
+          retried after addressing the returned error message.
         </p>
       </Section>
 
       <Section title="Mastering engine modes" defaultOpen>
         <p>
-          The mastering engine exposes three tonal profiles. You must include one of
-          these values in the <code className="font-mono text-xs">mode</code> field
-          whenever you enqueue a job—the API will reject requests that omit it.
+          The mastering engine exposes three tonal profiles. Include one of
+          these values in the <code className="font-mono text-xs">mode</code>{" "}
+          field whenever you enqueue a job.
         </p>
         <ul className="list-disc pl-5 space-y-1">
           <li>
-            <code className="font-mono text-xs">process</code> – Modern sheen and
-            width. This is the default used by the demo app and mirrors the retail
-            experience.
+            <code className="font-mono text-xs">process</code> – Modern sheen
+            and width. This is the default used by the demo app and mirrors the
+            retail experience.
           </li>
           <li>
-            <code className="font-mono text-xs">lite</code> – Open, gentle lift that
-            preserves additional transient detail.
+            <code className="font-mono text-xs">lite</code> – Open, gentle lift
+            that preserves additional transient detail.
           </li>
           <li>
-            <code className="font-mono text-xs">warm</code> – Powerful, saturated tilt
-            for productions that need extra weight.
+            <code className="font-mono text-xs">warm</code> – Powerful,
+            saturated tilt for productions that need extra weight.
           </li>
         </ul>
         <p>
-          The playground form and accompanying API route already forward the selected
-          <code className="font-mono text-xs">mode</code> so you can mirror the same
-          field in your own integration.
+          The playground form and accompanying API route already forward the
+          selected
+          <code className="font-mono text-xs">mode</code> so you can mirror the
+          same field in your own integration.
         </p>
       </Section>
 
       <Section title="Quick start" defaultOpen>
         <p>
-          If you are integrating from a fresh Node.js project, install the helper dependencies and create a component like the one in the complete example below.
+          If you are integrating from a fresh Node.js project, install the
+          helper dependencies and create a component like the one in the
+          complete example below.
         </p>
-        <CodeBlock label="Install dependencies" code={`npm install axios react-dropzone`}></CodeBlock>
+        <CodeBlock
+          label="Install dependencies"
+          code={`npm install axios react-dropzone`}
+        ></CodeBlock>
       </Section>
 
       <Section title="1. Upload to Chosen Masters" defaultOpen>
         <p>
-          Request a signed URL from <code className="font-mono text-xs">POST /api/b2b/mastering/upload-url</code> using your API key in the <code className="font-mono text-xs">x-api-key</code> header. The response includes:
+          Request a signed URL from{" "}
+          <code className="font-mono text-xs">
+            POST /api/b2b/mastering/upload-url
+          </code>{" "}
+          using your API key in the{" "}
+          <code className="font-mono text-xs">x-api-key</code> header. The
+          response includes:
         </p>
         <ul className="list-disc pl-5 space-y-1">
-          <li><span className="font-mono text-xs">uploadUrl</span> – pre-signed S3 destination.</li>
-          <li><span className="font-mono text-xs">s3Key</span> – send this in Step 2 to trigger mastering.</li>
-          <li><span className="font-mono text-xs">headers</span> – required headers for the direct S3 upload.</li>
-          <li><span className="font-mono text-xs">expiresIn</span> – seconds before the upload URL becomes invalid.</li>
+          <li>
+            <span className="font-mono text-xs">uploadUrl</span> – pre-signed S3
+            destination.
+          </li>
+          <li>
+            <span className="font-mono text-xs">s3Key</span> – send this in Step
+            2 to trigger mastering.
+          </li>
+          <li>
+            <span className="font-mono text-xs">headers</span> – required
+            headers for the direct S3 upload.
+          </li>
+          <li>
+            <span className="font-mono text-xs">expiresIn</span> – seconds
+            before the upload URL becomes invalid.
+          </li>
         </ul>
-        <p>Use the exact headers returned and complete the upload before the expiry window closes.</p>
+        <p>
+          Use the exact headers returned and complete the upload before the
+          expiry window closes.
+        </p>
         <CodeBlock label="Request upload URL" code={CODE_UPLOAD} />
       </Section>
 
       <Section title="2. Submit for mastering" defaultOpen>
         <p>
-          Once your file is stored, call <code className="font-mono text-xs">POST /api/b2b/mastering</code> with the <code className="font-mono text-xs">s3Key</code> from the upload step. Choose a processing mode and explicitly send it in the request body—leaving <code className="font-mono text-xs">mode</code> blank will cause the submission to fail.
+          Once your file is stored, call{" "}
+          <code className="font-mono text-xs">POST /api/b2b/mastering</code>{" "}
+          with the <code className="font-mono text-xs">s3Key</code> from the
+          upload step. Choose a processing mode and send it in the request body.
         </p>
         <p>
-          The platform deducts one credit as soon as the job is accepted. A <code className="font-mono text-xs">403</code> response indicates the tenant is out of credits—top up before retrying.
+          The platform deducts one credit as soon as the job is accepted. A{" "}
+          <code className="font-mono text-xs">403</code> response indicates the
+          tenant is out of credits—top up before retrying.
         </p>
         <p className="text-xs text-gray-500">
-          Required mode values: <code className="font-mono text-xs">process</code> (Modern), <code className="font-mono text-xs">lite</code> (Open), or <code className="font-mono text-xs">warm</code> (Powerful). Any other value is rejected.
+          Mode values: <code className="font-mono text-xs">process</code>{" "}
+          (Modern), <code className="font-mono text-xs">lite</code> (Open), or{" "}
+          <code className="font-mono text-xs">warm</code> (Powerful).
         </p>
         <CodeBlock label="Submit mastering job" code={CODE_SUBMIT} />
       </Section>
 
       <Section title="3. Retrieve mastered file" defaultOpen>
         <p>
-          Poll the job endpoint until <code className="font-mono text-xs">mastered</code> is true. Every response returns <code className="font-mono text-xs">expectedKey</code>, <code className="font-mono text-xs">expectedUrl</code>, and a <code className="font-mono text-xs">deliverables</code> array so you can pre-compute CloudFront download paths while Lambda finishes rendering.
+          Poll the job endpoint until{" "}
+          <code className="font-mono text-xs">mastered</code> is true. Every
+          response returns{" "}
+          <code className="font-mono text-xs">expectedKey</code>,{" "}
+          <code className="font-mono text-xs">expectedUrl</code>, and a{" "}
+          <code className="font-mono text-xs">deliverables</code> array so you
+          can pre-compute CloudFront download paths while the render completes.
         </p>
         <p>
-          Once <code className="font-mono text-xs">mastered</code> is true, the payload includes a signed CloudFront URL for instant playback. If any deliverable is unavailable, continue polling—the job automatically refunds its credit if rendering fails.
+          Once <code className="font-mono text-xs">mastered</code> is true, the
+          payload includes a signed CloudFront URL for instant playback. If any
+          deliverable is unavailable, continue polling—the job automatically
+          refunds its credit if rendering fails.
         </p>
         <CodeBlock label="Poll job status" code={CODE_STATUS} />
       </Section>
 
       <Section title="4. Stream mastered intensities" defaultOpen>
         <p>
-          After the job reports mastered, call <code className="font-mono text-xs">GET /api/b2b/mastering/:id/audio</code> to retrieve CloudFront URLs for each intensity.
+          After the job reports mastered, call{" "}
+          <code className="font-mono text-xs">
+            GET /api/b2b/mastering/:id/audio
+          </code>{" "}
+          to retrieve CloudFront URLs for each intensity.{" "}
+          <strong>Don’t stop when Level 3 arrives</strong>—keep polling until{" "}
+          <em>all</em> requested levels are ready, or until ~30 seconds after
+          the first playable CloudFront URL appears (grace window). This mirrors
+          the production player and avoids cutting the ladder short while CDN
+          links are still warming.
         </p>
         <ul className="list-disc pl-5 space-y-1">
-          <li><span className="font-mono text-xs">intensities</span> – array of intensity levels with <span className="font-mono text-xs">level</span>, <span className="font-mono text-xs">available</span>, <span className="font-mono text-xs">url</span>, <span className="font-mono text-xs">expiresAt</span>, and <span className="font-mono text-xs">type</span>.</li>
-          <li><span className="font-mono text-xs">availableLevels</span> – mastered intensities ready to play. Clamp UI sliders to these values.</li>
-          <li><span className="font-mono text-xs">requestedLevels</span> – all intensities requested during submission for pre-rendering UI.</li>
-          <li><span className="font-mono text-xs">originalUrl</span> – CloudFront playback path for the original upload (always available).
+          <li>
+            <span className="font-mono text-xs">intensities</span> – array of
+            intensity levels with{" "}
+            <span className="font-mono text-xs">level</span>,{" "}
+            <span className="font-mono text-xs">available</span>,{" "}
+            <span className="font-mono text-xs">url</span>,{" "}
+            <span className="font-mono text-xs">expiresAt</span>, and{" "}
+            <span className="font-mono text-xs">type</span>.
+          </li>
+          <li>
+            <span className="font-mono text-xs">availableLevels</span> –
+            mastered intensities ready to play. Clamp UI sliders to these
+            values.
+          </li>
+          <li>
+            <span className="font-mono text-xs">requestedLevels</span> – all
+            intensities requested during submission; use this to determine when
+            “all ready” has been reached.
+          </li>
+          <li>
+            <span className="font-mono text-xs">originalUrl</span> – CloudFront
+            playback path for the original upload (available even while masters
+            warm).
           </li>
         </ul>
         <p>
-          The demo download button now mirrors whichever intensity is currently selected. Use the format picker to toggle the CloudFront link between the mastered preview format and a <code className="font-mono text-xs">.wav</code> render—the URL simply swaps extensions before the signed query string so you can grab either asset without another mastering pass.
+          Signed URLs may take a few seconds to warm. The helper below
+          implements the recommended strategy: continue polling beyond Level 3,
+          and stop either when all{" "}
+          <span className="font-mono text-xs">requestedLevels</span> are
+          available or ~30 seconds after the first playable URL is detected.
         </p>
+        <CodeBlock
+          label="Poll intensities until all ready (with 30s CF grace window)"
+          code={CODE_AUDIO}
+        />
         <p>
-          Signed URLs may take a few seconds to warm. When no intensity is playable, wait ~10 seconds and retry. All CloudFront responses are CORS-enabled; include <code className="font-mono text-xs">mode: &quot;cors&quot;</code> and <code className="font-mono text-xs">crossOrigin=&quot;anonymous&quot;</code> on HTML audio tags for parity with the retail player.
+          The demo download button mirrors the currently selected intensity. Use
+          the format picker to toggle the CloudFront link between the mastered
+          preview format and a <code className="font-mono text-xs">.wav</code>{" "}
+          render—the URL simply swaps extensions before the signed query string
+          so you can grab either asset without another mastering pass.
         </p>
-        <CodeBlock label="Fetch mastered intensities" code={CODE_AUDIO} />
       </Section>
     </main>
   );

@@ -953,7 +953,7 @@ export default function Page() {
         >
           {file ? "Start Mastering" : "Select a file first"}
         </button>
-
+        {/* 
         <button
           onClick={startCfProbe}
           style={{
@@ -966,7 +966,7 @@ export default function Page() {
           title="Run CloudFront probe now"
         >
           Force Probe
-        </button>
+        </button> */}
       </div>
 
       {progress > 0 && progress < 100 && (
