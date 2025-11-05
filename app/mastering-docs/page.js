@@ -208,7 +208,7 @@ if (!preferred) {
 } else {
   console.log('Play preferred master at:', preferred.url);
 }`;
-const CODE_PLAYBACK = `function extractExtension(url) {
+const CODE_PLAYBACK = String.raw`function extractExtension(url) {
   if (!url) return null;
   const [path] = url.split('?');
   const match = path.match(/\.([a-z0-9]+)$/i);
@@ -221,8 +221,8 @@ function swapExtension(url, nextExt) {
   const [path, query] = url.split('?');
   const extMatch = path.match(/\.([a-z0-9]+)$/i);
   if (!extMatch) return url;
-  const updatedPath = path.replace(/\.(mp3|wav|m4a|flac)$/i, `.${normalized}`);
-  return query ? `${updatedPath}?${query}` : updatedPath;
+  const updatedPath = path.replace(/\.(mp3|wav|m4a|flac)$/i, \`.\${normalized}\`);
+  return query ? \`${updatedPath}?\${query}\` : updatedPath;
 }
 
 const masteredUrl = data.url; // CloudFront link returned by /mastering/:id
@@ -239,7 +239,7 @@ const downloadFormats = (() => {
 })();
 
 // When a user picks a format, swap the extension before the signed query
-const downloadUrl = swapExtension(masteredUrl, selectedFormat);`
+const downloadUrl = swapExtension(masteredUrl, selectedFormat);`;
 /* ----------------------------------------------------------------------------- */
 
 export default function MasteringDocsPage() {
