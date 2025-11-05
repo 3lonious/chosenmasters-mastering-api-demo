@@ -208,38 +208,6 @@ if (!preferred) {
 } else {
   console.log('Play preferred master at:', preferred.url);
 }`;
-const CODE_PLAYBACK = String.raw`function extractExtension(url) {
-  if (!url) return null;
-  const [path] = url.split('?');
-  const match = path.match(/\.([a-z0-9]+)$/i);
-  return match ? match[1].toLowerCase() : null;
-}
-
-function swapExtension(url, nextExt) {
-  if (!url || !nextExt) return url;
-  const normalized = nextExt.toLowerCase();
-  const [path, query] = url.split('?');
-  const extMatch = path.match(/\.([a-z0-9]+)$/i);
-  if (!extMatch) return url;
-  const updatedPath = path.replace(/\.(mp3|wav|m4a|flac)$/i, \`.\${normalized}\`);
-  return query ? \`${updatedPath}?\${query}\` : updatedPath;
-}
-
-const masteredUrl = data.url; // CloudFront link returned by /mastering/:id
-
-// Always stream the MP3 variant so playback works everywhere
-const playbackUrl = swapExtension(masteredUrl, 'mp3');
-
-// Offer both the mastered preview format and lossless WAV for download
-const downloadFormats = (() => {
-  const current = extractExtension(masteredUrl) || 'mp3';
-  const formats = [{ value: current, label: current.toUpperCase() }];
-  if (current !== 'wav') formats.push({ value: 'wav', label: 'WAV' });
-  return formats;
-})();
-
-// When a user picks a format, swap the extension before the signed query
-const downloadUrl = swapExtension(masteredUrl, selectedFormat);`;
 /* ----------------------------------------------------------------------------- */
 
 export default function MasteringDocsPage() {
@@ -434,9 +402,8 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         </p>
         <p>
           Once <code className="font-mono text-xs">mastered</code> is true, the
-          payload includes a signed CloudFront URL for instant playback.
-          Always present the CloudFront <code className="font-mono text-xs">.mp3</code> variant in your player UI so previews work in every browser.
-          If any deliverable is unavailable, continue polling—the job automatically
+          payload includes a signed CloudFront URL for instant playback. If any
+          deliverable is unavailable, continue polling—the job automatically
           refunds its credit if rendering fails.
         </p>
         <CodeBlock label="Poll job status" code={CODE_STATUS} />
@@ -499,35 +466,6 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
           render—the URL simply swaps extensions before the signed query string
           so you can grab either asset without another mastering pass.
         </p>
-      </Section>
-
-      <Section title="5. Playback and downloads" defaultOpen>
-        <p>
-          The landing page always streams the MP3 CloudFront asset—even when the
-          job renders additional formats—to guarantee reliable playback. Mirror
-          that approach by swapping the URL extension before the signed query
-          string. The same helper lets you expose a WAV download option without
-          re-rendering the master.
-        </p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>
-            Stream <code className="font-mono text-xs">.mp3</code> previews to
-            cover every browser.
-          </li>
-          <li>
-            Offer downloads in the mastered preview format and
-            <code className="font-mono text-xs">.wav</code> by swapping
-            extensions on the same signed URL.
-          </li>
-          <li>
-            Do not request a second mastering pass—simply change the extension
-            before the query string to retrieve the alternate asset.
-          </li>
-        </ul>
-        <CodeBlock
-          label="Mirror landing-page playback + download logic"
-          code={CODE_PLAYBACK}
-        />
       </Section>
     </main>
   );
