@@ -78,7 +78,7 @@ const res = await fetch('https://chosenmasters.com/api/b2b/mastering', {
     title: 'My Track',
     ext: 'wav',
     size: '5.4',
-    mode: 'process', // process | lite | warm
+    mode: 'process', // required: process | lite | warm
     // No need to send a type flag—the API tags the job as B2B and deducts a credit when accepted.
   }),
 });
@@ -221,10 +221,9 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
 
       <Section title="Mastering engine modes" defaultOpen>
         <p>
-          The mastering engine exposes three tonal profiles. Pass your desired profile
-          in the <code className="font-mono text-xs">mode</code> field when you enqueue
-          a job. If omitted, requests default to
-          <code className="font-mono text-xs">process</code>.
+          The mastering engine exposes three tonal profiles. You must include one of
+          these values in the <code className="font-mono text-xs">mode</code> field
+          whenever you enqueue a job—the API will reject requests that omit it.
         </p>
         <ul className="list-disc pl-5 space-y-1">
           <li>
@@ -271,13 +270,13 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
 
       <Section title="2. Submit for mastering" defaultOpen>
         <p>
-          Once your file is stored, call <code className="font-mono text-xs">POST /api/b2b/mastering</code> with the <code className="font-mono text-xs">s3Key</code> from the upload step. Choose a processing mode (defaults to <code className="font-mono text-xs">process</code>) and optionally override the title.
+          Once your file is stored, call <code className="font-mono text-xs">POST /api/b2b/mastering</code> with the <code className="font-mono text-xs">s3Key</code> from the upload step. Choose a processing mode and explicitly send it in the request body—leaving <code className="font-mono text-xs">mode</code> blank will cause the submission to fail.
         </p>
         <p>
           The platform deducts one credit as soon as the job is accepted. A <code className="font-mono text-xs">403</code> response indicates the tenant is out of credits—top up before retrying.
         </p>
         <p className="text-xs text-gray-500">
-          Optional mode values: <code className="font-mono text-xs">process</code> (Modern), <code className="font-mono text-xs">lite</code> (Open), or <code className="font-mono text-xs">warm</code> (Powerful).
+          Required mode values: <code className="font-mono text-xs">process</code> (Modern), <code className="font-mono text-xs">lite</code> (Open), or <code className="font-mono text-xs">warm</code> (Powerful). Any other value is rejected.
         </p>
         <CodeBlock label="Submit mastering job" code={CODE_SUBMIT} />
       </Section>
