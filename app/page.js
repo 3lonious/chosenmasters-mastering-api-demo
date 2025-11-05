@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 import axios from "axios";
 
@@ -736,6 +737,24 @@ export default function Page() {
 
   return (
     <main style={{ maxWidth: 840, margin: "40px auto", padding: 16 }}>
+      <nav
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          marginBottom: 16,
+        }}
+      >
+        <Link
+          href="/mastering-docs"
+          style={{
+            color: "#2563eb",
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Mastering Docs
+        </Link>
+      </nav>
       <h1 style={{ fontSize: 28, marginBottom: 12 }}>
         Chosen Masters — B2B Mastering Demo
       </h1>
