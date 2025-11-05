@@ -208,6 +208,41 @@ if (!preferred) {
 } else {
   console.log('Play preferred master at:', preferred.url);
 }`;
+const CODE_PLAYBACK_DOWNLOAD = `function pickMp3Preview(intensities) {
+  if (!Array.isArray(intensities)) return null;
+
+  const mp3 = intensities.find(
+    (item) =>
+      item &&
+      item.available &&
+      typeof item.url === 'string' &&
+      /\.mp3(?:\?|$)/i.test(item.url)
+  );
+
+  if (mp3) return mp3.url;
+
+  const fallback = intensities.find(
+    (item) => item && item.available && typeof item.url === 'string'
+  );
+
+  return fallback ? fallback.url : null;
+}
+
+function swapExtension(url, nextExt = 'wav') {
+  if (!url || !nextExt) return url;
+  const [path, query] = url.split('?');
+  if (!/\.(mp3|wav|m4a|flac)$/i.test(path)) return url;
+  const updated = path.replace(
+    /\.(mp3|wav|m4a|flac)$/i,
+    '.' + nextExt.toLowerCase()
+  );
+  return query ? updated + '?' + query : updated;
+}
+
+// Usage:
+const previewUrl = pickMp3Preview(result.intensities);
+const wavDownloadUrl = swapExtension(previewUrl, 'wav');
+const mp3DownloadUrl = swapExtension(previewUrl, 'mp3');`
 /* ----------------------------------------------------------------------------- */
 
 export default function MasteringDocsPage() {
@@ -458,6 +493,23 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         <CodeBlock
           label="Poll intensities until all ready (with 30s CF grace window)"
           code={CODE_AUDIO}
+        />
+        <p>
+          Always feed your audio player a CloudFront-signed
+          <code className="font-mono text-xs">.mp3</code>{" "}
+          preview. The CDN warms MP3 first, so waiting for another format can
+          stall playback even though the mastered ladder is already ready to
+          audition.
+        </p>
+        <p>
+          The helper below mirrors the landing page implementation: prefer the
+          MP3 preview for streaming, then swap extensions on the same signed path
+          when you need a <code className="font-mono text-xs">.wav</code>{" "}
+          or alternate download without launching a second mastering pass.
+        </p>
+        <CodeBlock
+          label="Prefer MP3 playback and derive WAV/MP3 downloads"
+          code={CODE_PLAYBACK_DOWNLOAD}
         />
         <p>
           The demo download button mirrors the currently selected intensity. Use
