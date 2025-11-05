@@ -154,13 +154,12 @@ function makeParentPoller({ jobId, setStatus, onDone }) {
   };
 }
 
-// choose default intensity (prefer L3, else lowest available)
+// choose default intensity (prefer L3, else lowest level regardless of availability)
 function chooseDefaultIntensity(list) {
-  const l3 = list.find((x) => x.available && x.level === 3);
+  if (!Array.isArray(list) || !list.length) return null;
+  const l3 = list.find((x) => x.level === 3);
   if (l3) return 3;
-  const mins = list
-    .filter((x) => x.available)
-    .sort((a, b) => a.level - b.level);
+  const mins = [...list].sort((a, b) => a.level - b.level);
   return mins.length ? mins[0].level : null;
 }
 
@@ -190,6 +189,7 @@ export default function Page() {
   // refs
   const parentPollCancelRef = useRef(null);
   const cfPollCancelRef = useRef(null);
+  const intensityPollCancelRef = useRef(null);
   const s3KeyRef = useRef(null);
 
   const selectedMasteredUrl = useMemo(() => {
@@ -277,6 +277,10 @@ export default function Page() {
         cfPollCancelRef.current();
         cfPollCancelRef.current = null;
       }
+      if (intensityPollCancelRef.current) {
+        intensityPollCancelRef.current();
+        intensityPollCancelRef.current = null;
+      }
 
       setFile(f);
       setTitle(f.name.replace(/\.[^/.]+$/, ""));
@@ -313,51 +317,98 @@ export default function Page() {
   );
 
   // Pull intensities for a job
-  const loadIntensities = useCallback(async (jid) => {
-    try {
-      if (!jid) return;
-      setStatus("Loading intensity URLs…");
-      const res = await fetch(
-        `/api/mastering/${encodeURIComponent(jid)}/audio?intensity=all`,
-        { cache: "no-store" }
-      );
-      if (!res.ok) {
-        console.warn("intensity fetch non-OK:", res.status);
-        return;
-      }
-      const data = await res.json(); // { originalUrl, expectedKey?, expectedUrl?, intensities: [...] }
-      setOriginalFromAPI(data.originalUrl || null);
+  const loadIntensities = useCallback((jid) => {
+    if (!jid) return;
 
-      if (data?.expectedKey) log("expectedKey (/audio):", data.expectedKey);
-      if (data?.expectedUrl) log("expectedUrl (/audio):", data.expectedUrl);
-
-      const list = Array.isArray(data.intensities) ? data.intensities : [];
-      setIntensities(list);
-
-      const def = chooseDefaultIntensity(list);
-      setSelectedIntensityLevel(def);
-      if (def != null) {
-        // prefer intensity list for masteredFiles UI
-        const urls = list
-          .filter((x) => x.available && x.url)
-          .sort((a, b) => a.level - b.level)
-          .map((x) => x.url);
-        if (urls.length) {
-          setMasteredFiles(urls);
-          const defIdx = Math.max(
-            0,
-            urls.findIndex((u) => u === list.find((x) => x.level === def)?.url)
-          );
-          setSelectedMasteredIndex(defIdx);
-          setIsOriginal(false);
-          setStatus("Intensity ladder ready.");
-        }
-      } else {
-        setStatus("No intensity URLs reported yet.");
-      }
-    } catch (e) {
-      console.warn("loadIntensities error:", e);
+    if (intensityPollCancelRef.current) {
+      intensityPollCancelRef.current();
+      intensityPollCancelRef.current = null;
     }
+
+    let canceled = false;
+    let timeoutId = null;
+
+    const cancel = () => {
+      canceled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    intensityPollCancelRef.current = cancel;
+
+    async function tick(initial = false) {
+      if (canceled) return;
+      try {
+        if (initial) setStatus("Loading intensity URLs…");
+        const res = await fetch(
+          `/api/mastering/${encodeURIComponent(jid)}/audio?intensity=all`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) {
+          console.warn("intensity fetch non-OK:", res.status);
+        } else {
+          const data = await res.json(); // { originalUrl, expectedKey?, expectedUrl?, intensities: [...] }
+          setOriginalFromAPI(data.originalUrl || null);
+
+          if (data?.expectedKey) log("expectedKey (/audio):", data.expectedKey);
+          if (data?.expectedUrl) log("expectedUrl (/audio):", data.expectedUrl);
+
+          const list = Array.isArray(data.intensities) ? data.intensities : [];
+          setIntensities(list);
+
+          const preferredLevel = chooseDefaultIntensity(list);
+          const preferredEntry =
+            preferredLevel != null
+              ? list.find(
+                  (x) =>
+                    x.level === preferredLevel && x.available && Boolean(x.url)
+                )
+              : null;
+
+          const urls = list
+            .filter((x) => x.available && x.url)
+            .sort((a, b) => a.level - b.level)
+            .map((x) => x.url);
+
+          if (urls.length) {
+            setMasteredFiles(urls);
+          }
+
+          if (preferredEntry) {
+            setSelectedIntensityLevel(preferredLevel);
+            if (urls.length) {
+              const defIdx = urls.findIndex((u) => u === preferredEntry.url);
+              if (defIdx >= 0) {
+                setSelectedMasteredIndex(defIdx);
+              }
+            }
+            setIsOriginal(false);
+            setStatus(`Intensity level ${preferredLevel} ready.`);
+            cancel();
+            intensityPollCancelRef.current = null;
+            return;
+          }
+
+          if (preferredLevel != null) {
+            setStatus(`Waiting for Level ${preferredLevel} intensity…`);
+          } else if (!urls.length) {
+            setStatus("No intensity URLs reported yet.");
+          } else {
+            setStatus("Waiting for preferred intensity…");
+          }
+        }
+      } catch (e) {
+        console.warn("loadIntensities error:", e);
+      }
+
+      if (!canceled) {
+        timeoutId = setTimeout(() => tick(false), 3000);
+      }
+    }
+
+    tick(true);
   }, []);
 
   // Parent poller instance (created per job)
@@ -396,6 +447,10 @@ export default function Page() {
     return () => {
       if (parentPollCancelRef.current) parentPollCancelRef.current();
       if (cfPollCancelRef.current) cfPollCancelRef.current();
+      if (intensityPollCancelRef.current) {
+        intensityPollCancelRef.current();
+        intensityPollCancelRef.current = null;
+      }
       try {
         if (originalPreviewUrl) URL.revokeObjectURL(originalPreviewUrl);
       } catch {}
