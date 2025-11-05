@@ -275,6 +275,9 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
           </li>
         </ul>
         <p>
+          The demo download button now mirrors whichever intensity is currently selected. Use the format picker to toggle the CloudFront link between the mastered preview format and a <code className="font-mono text-xs">.wav</code> render—the URL simply swaps extensions before the signed query string so you can grab either asset without another mastering pass.
+        </p>
+        <p>
           Signed URLs may take a few seconds to warm. When no intensity is playable, wait ~10 seconds and retry. All CloudFront responses are CORS-enabled; include <code className="font-mono text-xs">mode: &quot;cors&quot;</code> and <code className="font-mono text-xs">crossOrigin=&quot;anonymous&quot;</code> on HTML audio tags for parity with the retail player.
         </p>
         <CodeBlock label="Fetch mastered intensities" code={CODE_AUDIO} />
