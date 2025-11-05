@@ -8,7 +8,7 @@ function setCors(res) {
   res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "content-type, x-api-key, authorization, idempotency-key"
+    "content-type, x-api-key, authorization, idempotency-key, Idempotency-Key"
   );
   res.headers.set("Access-Control-Max-Age", "86400");
   res.headers.set("Cache-Control", "no-store");
@@ -22,11 +22,8 @@ export async function OPTIONS() {
 
 function withTimeout(ms = 12000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("timeout")), ms);
-  return {
-    signal: controller.signal,
-    clear: () => clearTimeout(timer),
-  };
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 export async function GET(request, context) {
@@ -37,8 +34,7 @@ export async function GET(request, context) {
   const parentBase = (
     process.env.PARENT_BASE_URL || "https://chosenmasters.com"
   ).replace(/\/+$/, "");
-  const partnerKey =
-    process.env.PARTNER_API_KEY || process.env.CM_API_KEY || "";
+  const partnerKey = process.env.CM_API_KEY || "";
 
   if (!jobId) {
     const r = new Response(JSON.stringify({ error: "Missing jobId" }), {
@@ -49,10 +45,10 @@ export async function GET(request, context) {
     return r;
   }
   if (!partnerKey) {
-    const r = new Response(
-      JSON.stringify({ error: "Missing PARTNER_API_KEY or CM_API_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    const r = new Response(JSON.stringify({ error: "Missing CM_API_KEY" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
     setCors(r);
     return r;
   }
@@ -82,25 +78,24 @@ export async function GET(request, context) {
     });
   } catch (e) {
     clear();
-    const isTimeout = String(e?.message || e) === "timeout";
     const r = new Response(
       JSON.stringify({
-        error: isTimeout ? "Upstream timeout" : "Upstream connect error",
-        ...(isTimeout ? {} : { detail: e?.message || String(e) }),
+        error: "Upstream connect/timeout error",
+        detail: String(e?.message || e),
       }),
-      {
-        status: isTimeout ? 504 : 502,
-        headers: { "Content-Type": "application/json" },
-      }
+      { status: 502, headers: { "Content-Type": "application/json" } }
     );
     setCors(r);
     return r;
   }
   clear();
 
-  // Pass through upstream response exactly (status + json)
   const text = await upstream.text();
-  // Log the *status* and a shortened body for debugging 502s
+  const reqId =
+    upstream.headers.get("x-request-id") ||
+    upstream.headers.get("x-amzn-requestid") ||
+    "";
+
   console.log("[/api/mastering/[jobId]] upstream status:", upstream.status);
   try {
     const peek = text.length > 200 ? `${text.slice(0, 200)}…` : text;
@@ -112,6 +107,7 @@ export async function GET(request, context) {
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      ...(reqId ? { "x-upstream-request-id": reqId } : {}),
     },
   });
   setCors(r);

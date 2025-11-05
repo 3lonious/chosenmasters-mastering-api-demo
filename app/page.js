@@ -370,7 +370,6 @@ export default function Page() {
     const dumpHeaders = (h) => {
       const out = {};
       try {
-        // Headers is iterable in browsers
         for (const [k, v] of h.entries()) out[k] = v;
       } catch {}
       return out;
@@ -414,9 +413,10 @@ export default function Page() {
         const errTxt = await up.text().catch(() => "");
         console.error("upload-url NON-OK body:", peek(errTxt));
         console.groupEnd();
-        throw new Error(
-          `Upload-URL failed (${up.status}): ${errTxt || "Unknown error"}`
+        setStatus(
+          `Upload URL error (${up.status}): ${errTxt || "Unknown error"}`
         );
+        return;
       }
 
       let upJson;
@@ -427,7 +427,8 @@ export default function Page() {
         const raw = await up.text().catch(() => "");
         console.error("upload-url raw body:", peek(raw));
         console.groupEnd();
-        throw new Error("Upload-URL returned non-JSON");
+        setStatus("Upload-URL returned non-JSON");
+        return;
       }
 
       const { uploadUrl, s3Key, headers, expiresIn } = upJson || {};
@@ -451,7 +452,7 @@ export default function Page() {
       let lastPct = 0;
       try {
         await axios.put(uploadUrl, file, {
-          headers,
+          headers: headers || {},
           onUploadProgress: (e) => {
             if (!e.total) return;
             const pct = Math.round((e.loaded / e.total) * 100);
@@ -471,7 +472,8 @@ export default function Page() {
           data: peek(e?.response?.data),
         });
         console.groupEnd();
-        throw new Error(`S3 upload failed: ${e?.message || "unknown"}`);
+        setStatus(`S3 upload failed: ${e?.message || "unknown"}`);
+        return;
       }
       console.groupEnd();
 
@@ -487,18 +489,31 @@ export default function Page() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`;
 
-      const submitBodyMinimal = {
-        s3Key,
-        mode, // "process" | "lite" | "warm"
-        // Uncomment if your upstream requires:
-        // title: title || file.name,
-        // ext: (file.name.split(".").pop() || "wav").toLowerCase(),
-        // size: Number((file.size / (1024 * 1024)).toFixed(2)),
-      };
-      console.log("Idempotency-Key:", idem);
-      console.log("POST /api/mastering body:", submitBodyMinimal);
+      const extFromName = (file.name?.split(".").pop() || "").toLowerCase();
+      const sizeMB = Number((file.size / (1024 * 1024)).toFixed(2));
 
-      // (Optional) start CF probe BEFORE we await submit — so we don't miss early availability
+      // Send only what the upstream needs; avoid overriding engine selection.
+      const submitBody = {
+        // keys
+        s3Key,
+        key: s3Key,
+
+        // your original mode token
+        mode, // "process" | "lite" | "warm"
+
+        // basic metadata many backends like to have (safe to include)
+        title: (title || file.name).replace(/\.[^/.]+$/, ""),
+        ext: extFromName || (s3Key.split(".").pop() || "").toLowerCase(),
+        contentType: file.type || "audio/wav",
+        sizeBytes: file.size,
+        sizeMB,
+        size: sizeMB,
+      };
+
+      console.log("Idempotency-Key:", idem);
+      console.log("POST /api/mastering body:", submitBody);
+
+      // Start CF probe early so we don't miss early availability
       console.log("Starting CF probe early with s3Key:", s3KeyRef.current);
       startCfProbe();
 
@@ -506,20 +521,20 @@ export default function Page() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
           "Idempotency-Key": idem,
         },
-        body: JSON.stringify(submitBodyMinimal),
+        body: JSON.stringify(submitBody),
       });
 
       console.log("submit status:", sub.status);
       const subHeaders = dumpHeaders(sub.headers);
       console.log("submit headers:", subHeaders);
 
-      // Try to read body text ALWAYS (so we can log it), then parse if OK
+      // read raw body regardless
       const subText = await sub.text().catch(() => "");
       console.log("submit raw body (peek):", peek(subText));
 
-      // If the proxy added an upstream request id, surface it
       const upstreamReqId =
         subHeaders["x-upstream-request-id"] ||
         subHeaders["x-request-id"] ||
@@ -534,30 +549,35 @@ export default function Page() {
         );
         console.groupEnd();
         setStatus("Submit accepted (upstream busy). Watching CloudFront…");
-        // CF probe is already running; we return here.
         console.log(`Total elapsed ~${Math.round(now() - t0)}ms`);
         return;
       }
 
       if (!sub.ok) {
-        // Show the upstream/proxy error clearly in UI and console
-        console.error("submit NON-OK:", sub.status, peek(subText));
-        console.groupEnd();
-        throw new Error(
-          `Submit failed (${sub.status}): ${
-            subText || "Failed to trigger mastering"
-          }`
+        // Do NOT throw — show message and keep CF probe alive.
+        let message = subText || "Failed to trigger mastering";
+        try {
+          const j = JSON.parse(subText);
+          message = j?.details || j?.error || message;
+        } catch {}
+        setStatus(
+          `Submit failed (${sub.status})${
+            upstreamReqId ? ` [req:${upstreamReqId}]` : ""
+          }: ${message}`
         );
+        console.groupEnd();
+        return;
       }
 
-      // OK -> parse JSON from the text we already captured
+      // OK -> parse JSON
       let payload = null;
       try {
         payload = subText ? JSON.parse(subText) : {};
       } catch (e) {
         console.error("submit JSON parse error:", e);
         console.groupEnd();
-        throw new Error("Submit returned non-JSON body");
+        setStatus("Submit returned non-JSON body");
+        return;
       }
 
       console.log("submit payload:", payload);
@@ -604,19 +624,15 @@ export default function Page() {
 
       setStatus(`Error: ${(err && err.message) || String(err)}`);
 
-      // stop any pollers to avoid noisy loops after error
+      // On hard runtime errors, it's safe to stop parent poller,
+      // but keep CF probe alive in case upstream finishes.
       if (parentPollCancelRef.current) {
         try {
           parentPollCancelRef.current();
         } catch {}
         parentPollCancelRef.current = null;
       }
-      if (cfPollCancelRef.current) {
-        try {
-          cfPollCancelRef.current();
-        } catch {}
-        cfPollCancelRef.current = null;
-      }
+      // DO NOT cancel cfPollCancelRef here — keep watching CF.
     }
   }
 

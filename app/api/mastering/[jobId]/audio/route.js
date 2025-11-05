@@ -20,7 +20,6 @@ export async function OPTIONS() {
 }
 
 export async function GET(req, context) {
-  // App Router params can be a Promise
   let params = context?.params;
   if (params && typeof params.then === "function") params = await params;
 
@@ -28,8 +27,7 @@ export async function GET(req, context) {
   const parentBase = (
     process.env.PARENT_BASE_URL || "https://chosenmasters.com"
   ).replace(/\/+$/, "");
-  const partnerKey =
-    process.env.PARTNER_API_KEY || process.env.CM_API_KEY || "";
+  const partnerKey = process.env.CM_API_KEY || "";
 
   if (!jobId) {
     const r = new Response(JSON.stringify({ error: "Missing jobId" }), {
@@ -40,17 +38,18 @@ export async function GET(req, context) {
     return r;
   }
   if (!partnerKey) {
-    const r = new Response(
-      JSON.stringify({ error: "Missing PARTNER_API_KEY/CM_API_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    const r = new Response(JSON.stringify({ error: "Missing CM_API_KEY" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
     setCors(r);
     return r;
   }
 
   try {
     const u = new URL(req.url);
-    const qs = u.search || ""; // keep ?intensity=all
+    const qs = u.search || ""; // preserve e.g. ?intensity=all
+
     const upstream = await fetch(
       `${parentBase}/api/b2b/mastering/${encodeURIComponent(jobId)}/audio${qs}`,
       {
@@ -63,7 +62,10 @@ export async function GET(req, context) {
     const text = await upstream.text();
     const r = new Response(text || "{}", {
       status: upstream.status,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
     });
     setCors(r);
     return r;
