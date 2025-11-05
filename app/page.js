@@ -185,12 +185,16 @@ export default function Page() {
   const [intensities, setIntensities] = useState([]); // [{level, available, url}]
   const [originalFromAPI, setOriginalFromAPI] = useState(null);
   const [selectedIntensityLevel, setSelectedIntensityLevel] = useState(null);
+  const [requestedLevels, setRequestedLevels] = useState([]);
 
   // refs
   const parentPollCancelRef = useRef(null);
   const cfPollCancelRef = useRef(null);
   const intensityPollCancelRef = useRef(null);
   const s3KeyRef = useRef(null);
+
+  // NEW: track when CloudFront first becomes available to start a 30s grace window
+  const cfFirstDetectedAtRef = useRef(null);
 
   const selectedMasteredUrl = useMemo(() => {
     if (!masteredFiles.length) return null;
@@ -250,7 +254,11 @@ export default function Page() {
       return;
     }
 
-    const targetExt = (downloadFormat || baseDownloadExtension || "mp3").toLowerCase();
+    const targetExt = (
+      downloadFormat ||
+      baseDownloadExtension ||
+      "mp3"
+    ).toLowerCase();
     const currentExt = extractExtension(selectedMasteredUrl);
     const nextUrl =
       currentExt && currentExt === targetExt
@@ -298,7 +306,9 @@ export default function Page() {
       setIntensities([]);
       setOriginalFromAPI(null);
       setSelectedIntensityLevel(null);
+      setRequestedLevels([]);
       s3KeyRef.current = null;
+      cfFirstDetectedAtRef.current = null; // reset CF grace window
     },
     [originalPreviewUrl]
   );
@@ -316,7 +326,7 @@ export default function Page() {
     [isDragActive]
   );
 
-  // Pull intensities for a job
+  // Pull intensities for a job (keep polling beyond Level 3; stop when all ready or CF grace window elapses)
   const loadIntensities = useCallback((jid) => {
     if (!jid) return;
 
@@ -349,7 +359,7 @@ export default function Page() {
         if (!res.ok) {
           console.warn("intensity fetch non-OK:", res.status);
         } else {
-          const data = await res.json(); // { originalUrl, expectedKey?, expectedUrl?, intensities: [...] }
+          const data = await res.json(); // { originalUrl, intensities, requestedLevels?, ... }
           setOriginalFromAPI(data.originalUrl || null);
 
           if (data?.expectedKey) log("expectedKey (/audio):", data.expectedKey);
@@ -358,6 +368,30 @@ export default function Page() {
           const list = Array.isArray(data.intensities) ? data.intensities : [];
           setIntensities(list);
 
+          // Track requested levels (fallback to all 1..5 if not provided)
+          const requested =
+            Array.isArray(data?.requestedLevels) && data.requestedLevels.length
+              ? data.requestedLevels
+              : [1, 2, 3, 4, 5];
+          setRequestedLevels(requested);
+
+          // Detect first playable (this implies CloudFront availability)
+          const playable = list
+            .filter((x) => x.available && x.url)
+            .sort((a, b) => a.level - b.level);
+
+          // Record CF detection time if we see any playable URL via /audio
+          if (playable.length && !cfFirstDetectedAtRef.current) {
+            cfFirstDetectedAtRef.current = Date.now();
+          }
+
+          // Keep the masteredFiles button cluster aligned to intensity URLs
+          const urls = playable.map((x) => x.url);
+          if (urls.length) {
+            setMasteredFiles(urls);
+          }
+
+          // Prefer Level 3 selection when it becomes available — but DO NOT stop polling
           const preferredLevel = chooseDefaultIntensity(list);
           const preferredEntry =
             preferredLevel != null
@@ -366,15 +400,6 @@ export default function Page() {
                     x.level === preferredLevel && x.available && Boolean(x.url)
                 )
               : null;
-
-          const urls = list
-            .filter((x) => x.available && x.url)
-            .sort((a, b) => a.level - b.level)
-            .map((x) => x.url);
-
-          if (urls.length) {
-            setMasteredFiles(urls);
-          }
 
           if (preferredEntry) {
             setSelectedIntensityLevel(preferredLevel);
@@ -385,18 +410,46 @@ export default function Page() {
               }
             }
             setIsOriginal(false);
-            setStatus(`Intensity level ${preferredLevel} ready.`);
+          }
+
+          // Progress status: which levels are ready vs pending?
+          const readyLevels = new Set(playable.map((p) => p.level));
+          const pending = requested.filter((lvl) => !readyLevels.has(lvl));
+          const readyList = [...readyLevels].sort((a, b) => a - b);
+          if (readyList.length) {
+            setStatus(
+              `Ready: L${readyList.join(", ")} • Waiting: ${
+                pending.length ? "L" + pending.join(", ") : "-"
+              }`
+            );
+          } else {
+            setStatus(
+              preferredLevel != null
+                ? `Waiting for Level ${preferredLevel} intensity…`
+                : "No intensity URLs reported yet."
+            );
+          }
+
+          // Stop criteria:
+          // 1) All requested levels are ready -> stop.
+          if (pending.length === 0 && requested.length > 0) {
+            setStatus("All requested intensities are ready.");
             cancel();
             intensityPollCancelRef.current = null;
             return;
           }
 
-          if (preferredLevel != null) {
-            setStatus(`Waiting for Level ${preferredLevel} intensity…`);
-          } else if (!urls.length) {
-            setStatus("No intensity URLs reported yet.");
-          } else {
-            setStatus("Waiting for preferred intensity…");
+          // 2) If CloudFront was detected, stop after ~30s grace window even if a few are still warming.
+          if (
+            cfFirstDetectedAtRef.current &&
+            Date.now() - cfFirstDetectedAtRef.current >= 30_000
+          ) {
+            setStatus(
+              "CloudFront ready; stopping auto-poll after ~30s grace window."
+            );
+            cancel();
+            intensityPollCancelRef.current = null;
+            return;
           }
         }
       } catch (e) {
@@ -434,7 +487,10 @@ export default function Page() {
           setSelectedMasteredIndex(Math.min(1, variants.length - 1));
           setIsOriginal(false);
 
-          // pull intensities once mastered flips
+          // mark CF detected for 30s grace window on intensities
+          cfFirstDetectedAtRef.current = Date.now();
+
+          // pull intensities once mastered flips (and keep polling)
           loadIntensities(jid);
         },
       });
@@ -495,6 +551,11 @@ export default function Page() {
         setSelectedMasteredIndex(0);
         setIsOriginal(false);
         setStatus("Mastered file available (CloudFront)");
+
+        // Start 30s grace window for intensities
+        if (!cfFirstDetectedAtRef.current) {
+          cfFirstDetectedAtRef.current = Date.now();
+        }
       },
     });
   }, [setStatus]);
@@ -690,7 +751,7 @@ export default function Page() {
         );
         setStatus("Submit accepted. Watching CloudFront & polling job…");
 
-        // ✅ NEW: start parent polling and prefetch intensities even on 202
+        // start parent polling and prefetch intensities even on 202
         const jid = payload?.jobId || null;
         if (jid) {
           console.log("jobId:", jid);
@@ -1012,6 +1073,11 @@ export default function Page() {
               ? "Playing Original"
               : "Select an intensity to A/B"}
           </div>
+          {!!requestedLevels.length && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+              Requested: L{requestedLevels.join(", ")}
+            </div>
+          )}
         </div>
       )}
 
@@ -1133,7 +1199,11 @@ export default function Page() {
             }}
             download={
               title
-                ? `${title}.${(downloadFormat || baseDownloadExtension || "mp3").toLowerCase()}`
+                ? `${title}.${(
+                    downloadFormat ||
+                    baseDownloadExtension ||
+                    "mp3"
+                  ).toLowerCase()}`
                 : undefined
             }
           >
