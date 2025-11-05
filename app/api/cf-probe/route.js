@@ -129,7 +129,6 @@ export async function GET(req) {
   const found = [];
   for (const rel of candidates) {
     const full = joinUrl(cf, rel);
-    /* eslint-disable no-await-in-loop */
     if (await exists(full)) {
       found.push(full);
       if (found.length >= 3) break;
