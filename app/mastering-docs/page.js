@@ -219,6 +219,35 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         </p>
       </Section>
 
+      <Section title="Mastering engine modes" defaultOpen>
+        <p>
+          The mastering engine exposes three tonal profiles. Pass your desired profile
+          in the <code className="font-mono text-xs">mode</code> field when you enqueue
+          a job. If omitted, requests default to
+          <code className="font-mono text-xs">process</code>.
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            <code className="font-mono text-xs">process</code> – Modern sheen and
+            width. This is the default used by the demo app and mirrors the retail
+            experience.
+          </li>
+          <li>
+            <code className="font-mono text-xs">lite</code> – Open, gentle lift that
+            preserves additional transient detail.
+          </li>
+          <li>
+            <code className="font-mono text-xs">warm</code> – Powerful, saturated tilt
+            for productions that need extra weight.
+          </li>
+        </ul>
+        <p>
+          The playground form and accompanying API route already forward the selected
+          <code className="font-mono text-xs">mode</code> so you can mirror the same
+          field in your own integration.
+        </p>
+      </Section>
+
       <Section title="Quick start" defaultOpen>
         <p>
           If you are integrating from a fresh Node.js project, install the helper dependencies and create a component like the one in the complete example below.
