@@ -33,7 +33,7 @@ function buildCandidates({ s3Key, exts }) {
   const dir = lastSlash === -1 ? "" : base.slice(0, lastSlash);
   const name = lastSlash === -1 ? base : base.slice(lastSlash + 1);
 
-  // likely output folders
+  // likely output folders (same as before)
   const folders = [
     "",
     "mastered",
@@ -45,20 +45,29 @@ function buildCandidates({ s3Key, exts }) {
     "export",
   ].map((f) => (dir ? (f ? `${dir}/${f}` : dir) : f).replace(/^\/+|\/+$/g, ""));
 
-  // patterns we try in order
+  // 🔧 include engine’s naming: processed_<name>_vN.ext (and no-suffix variant)
   const pat = [
-    "{F}/{N}_v1.{E}",
-    "{F}/{N}_v2.{E}",
-    "{F}/{N}_v3.{E}",
-    "{F}/{N}_v4.{E}",
-    "{F}/{N}_v5.{E}",
-    "{F}/{N}.{E}", // no variant suffix
-    "{F}/v1.{E}",
-    "{F}/v2.{E}",
-    "{F}/{N}/v1.{E}",
-    "{F}/{N}/v2.{E}",
-    "{F}/{N}/{N}_v1.{E}",
-    "{F}/{N}/{N}.{E}",
+    // processed_ prefix (engine default)
+    "processed_{N}_v1.{E}",
+    "processed_{N}_v2.{E}",
+    "processed_{N}_v3.{E}",
+    "processed_{N}_v4.{E}",
+    "processed_{N}_v5.{E}",
+    "processed_{N}.{E}",
+
+    // previous patterns (keep existing behavior)
+    "{N}_v1.{E}",
+    "{N}_v2.{E}",
+    "{N}_v3.{E}",
+    "{N}_v4.{E}",
+    "{N}_v5.{E}",
+    "{N}.{E}",
+    "v1.{E}",
+    "v2.{E}",
+    "{N}/v1.{E}",
+    "{N}/v2.{E}",
+    "{N}/{N}_v1.{E}",
+    "{N}/{N}.{E}",
   ];
 
   const rels = [];
@@ -66,13 +75,14 @@ function buildCandidates({ s3Key, exts }) {
     for (const E of exts)
       for (const p of pat) {
         const rel = p
-          .replace("{F}", F ? F : "")
-          .replace(/\/{2,}/g, "/")
           .replace("{N}", name)
           .replace("{E}", E)
+          .replace("{F}", F ? F : "")
+          .replace(/\/{2,}/g, "/")
           .replace(/^\/+/, "");
         if (rel) rels.push(rel);
       }
+
   return [...new Set(rels)];
 }
 

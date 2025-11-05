@@ -413,10 +413,9 @@ export default function Page() {
         const errTxt = await up.text().catch(() => "");
         console.error("upload-url NON-OK body:", peek(errTxt));
         console.groupEnd();
-        setStatus(
-          `Upload URL error (${up.status}): ${errTxt || "Unknown error"}`
+        throw new Error(
+          `Upload-URL failed (${up.status}): ${errTxt || "Unknown error"}`
         );
-        return;
       }
 
       let upJson;
@@ -427,8 +426,7 @@ export default function Page() {
         const raw = await up.text().catch(() => "");
         console.error("upload-url raw body:", peek(raw));
         console.groupEnd();
-        setStatus("Upload-URL returned non-JSON");
-        return;
+        throw new Error("Upload-URL returned non-JSON");
       }
 
       const { uploadUrl, s3Key, headers, expiresIn } = upJson || {};
@@ -452,7 +450,7 @@ export default function Page() {
       let lastPct = 0;
       try {
         await axios.put(uploadUrl, file, {
-          headers: headers || {},
+          headers,
           onUploadProgress: (e) => {
             if (!e.total) return;
             const pct = Math.round((e.loaded / e.total) * 100);
@@ -472,8 +470,7 @@ export default function Page() {
           data: peek(e?.response?.data),
         });
         console.groupEnd();
-        setStatus(`S3 upload failed: ${e?.message || "unknown"}`);
-        return;
+        throw new Error(`S3 upload failed: ${e?.message || "unknown"}`);
       }
       console.groupEnd();
 
@@ -492,16 +489,15 @@ export default function Page() {
       const extFromName = (file.name?.split(".").pop() || "").toLowerCase();
       const sizeMB = Number((file.size / (1024 * 1024)).toFixed(2));
 
-      // Send only what the upstream needs; avoid overriding engine selection.
       const submitBody = {
         // keys
         s3Key,
         key: s3Key,
 
-        // your original mode token
+        // mode (your token)
         mode, // "process" | "lite" | "warm"
 
-        // basic metadata many backends like to have (safe to include)
+        // helpful metadata
         title: (title || file.name).replace(/\.[^/.]+$/, ""),
         ext: extFromName || (s3Key.split(".").pop() || "").toLowerCase(),
         contentType: file.type || "audio/wav",
@@ -513,7 +509,7 @@ export default function Page() {
       console.log("Idempotency-Key:", idem);
       console.log("POST /api/mastering body:", submitBody);
 
-      // Start CF probe early so we don't miss early availability
+      // Start CF probe immediately (now that s3KeyRef is set)
       console.log("Starting CF probe early with s3Key:", s3KeyRef.current);
       startCfProbe();
 
@@ -531,9 +527,14 @@ export default function Page() {
       const subHeaders = dumpHeaders(sub.headers);
       console.log("submit headers:", subHeaders);
 
-      // read raw body regardless
+      // read body for logging + possible jobId/expectedKey
       const subText = await sub.text().catch(() => "");
       console.log("submit raw body (peek):", peek(subText));
+
+      let payload = null;
+      try {
+        payload = subText ? JSON.parse(subText) : null;
+      } catch {}
 
       const upstreamReqId =
         subHeaders["x-upstream-request-id"] ||
@@ -545,16 +546,33 @@ export default function Page() {
 
       if (sub.status === 202) {
         console.warn(
-          "submit returned 202 Accepted (busy / async). Using CF probe path."
+          "submit returned 202 Accepted (busy / async). Using CF probe + parent poll."
         );
+        setStatus("Submit accepted. Watching CloudFront & polling job…");
+
+        // ✅ NEW: start parent polling and prefetch intensities even on 202
+        const jid = payload?.jobId || null;
+        if (jid) {
+          console.log("jobId:", jid);
+          setJobId(jid);
+
+          if (parentPollCancelRef.current) parentPollCancelRef.current();
+          console.log("Starting parent poller…");
+          makeAndStartParentPolling(jid);
+
+          console.log("Prefetching intensities for jobId:", jid);
+          loadIntensities(jid);
+        } else {
+          console.warn("202 without jobId; relying on CF probe only.");
+        }
+
         console.groupEnd();
-        setStatus("Submit accepted (upstream busy). Watching CloudFront…");
         console.log(`Total elapsed ~${Math.round(now() - t0)}ms`);
         return;
       }
 
       if (!sub.ok) {
-        // Do NOT throw — show message and keep CF probe alive.
+        // Show upstream error but keep CF probe running
         let message = subText || "Failed to trigger mastering";
         try {
           const j = JSON.parse(subText);
@@ -569,37 +587,33 @@ export default function Page() {
         return;
       }
 
-      // OK -> parse JSON
-      let payload = null;
+      // 200-ish OK (rare for async) — parse and proceed
+      let okPayload = null;
       try {
-        payload = subText ? JSON.parse(subText) : {};
+        okPayload = subText ? JSON.parse(subText) : {};
       } catch (e) {
         console.error("submit JSON parse error:", e);
         console.groupEnd();
-        setStatus("Submit returned non-JSON body");
-        return;
+        throw new Error("Submit returned non-JSON body");
       }
 
-      console.log("submit payload:", payload);
-      const jid = payload?.jobId || null;
-      if (payload?.expectedKey)
-        console.log("expectedKey (submit):", payload.expectedKey);
-      if (payload?.expectedUrl)
-        console.log("expectedUrl (submit):", payload.expectedUrl);
+      console.log("submit payload:", okPayload);
+      const jid = okPayload?.jobId || null;
+      if (okPayload?.expectedKey)
+        console.log("expectedKey (submit):", okPayload.expectedKey);
+      if (okPayload?.expectedUrl)
+        console.log("expectedUrl (submit):", okPayload.expectedUrl);
 
       if (jid) {
         console.log("jobId:", jid);
         setJobId(jid);
         setStatus(`Job queued: ${jid}. Polling parent + CloudFront…`);
 
-        // ensure any old poller is stopped
         if (parentPollCancelRef.current) parentPollCancelRef.current();
 
-        // kick parent polling
         console.log("Starting parent poller…");
         makeAndStartParentPolling(jid);
 
-        // prefetch intensity URLs so ladder is ready ASAP
         console.log("Prefetching intensities for jobId:", jid);
         loadIntensities(jid);
       } else {
@@ -624,15 +638,13 @@ export default function Page() {
 
       setStatus(`Error: ${(err && err.message) || String(err)}`);
 
-      // On hard runtime errors, it's safe to stop parent poller,
-      // but keep CF probe alive in case upstream finishes.
+      // stop parent poller (keep CF probe alive)
       if (parentPollCancelRef.current) {
         try {
           parentPollCancelRef.current();
         } catch {}
         parentPollCancelRef.current = null;
       }
-      // DO NOT cancel cfPollCancelRef here — keep watching CF.
     }
   }
 
