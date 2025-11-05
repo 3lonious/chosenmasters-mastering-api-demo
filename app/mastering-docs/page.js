@@ -42,9 +42,7 @@ function CodeBlock({ label, code }) {
   );
 }
 
-const API_KEY = "35314b7a907a6f0cecbcb03aee8bc83e543a9f737c49fe351122aa0f61079d82";
-
-const CODE_UPLOAD = `const API_KEY = "${API_KEY}";
+const CODE_UPLOAD = `const API_KEY = process.env.CM_API_KEY;
 
 const response = await fetch('https://chosenmasters.com/api/b2b/mastering/upload-url', {
   method: 'POST',
@@ -67,7 +65,7 @@ const { uploadUrl, s3Key, headers, expiresIn } = await response.json();
 console.log('Upload using signed URL before it expires:', expiresIn, 'seconds');
 // PUT your file to uploadUrl with the provided headers before expiresIn seconds elapse.`;
 
-const CODE_SUBMIT = `const API_KEY = "${API_KEY}";
+const CODE_SUBMIT = `const API_KEY = process.env.CM_API_KEY;
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering', {
   method: 'POST',
@@ -98,7 +96,7 @@ if (data.expectedUrl) {
   console.log('CloudFront URL:', data.expectedUrl);
 }`;
 
-const CODE_STATUS = `const API_KEY = "${API_KEY}";
+const CODE_STATUS = `const API_KEY = process.env.CM_API_KEY;
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering/' + jobId, {
   headers: { 'x-api-key': API_KEY },
@@ -127,7 +125,7 @@ if (data.mastered && data.url) {
   // document.getElementById('mastered-preview').src = data.url;
 }`;
 
-const CODE_AUDIO = `const API_KEY = "${API_KEY}";
+const CODE_AUDIO = `const API_KEY = process.env.CM_API_KEY;
 
 const res = await fetch(
   'https://chosenmasters.com/api/b2b/mastering/' + jobId + '/audio?intensity=all',
@@ -182,6 +180,24 @@ export default function MasteringDocsPage() {
           Authenticate requests with your API key. Each song submission costs one credit. Credit rates start at $0.50 and decrease to $0.14 at higher tiers. Mastered files stay on our CloudFront CDN for 30 days—download anything you need to keep beyond that window.
         </p>
       </header>
+
+      <Section title="Environment configuration" defaultOpen>
+        <p>
+          Create a <code className="font-mono text-xs">.env.local</code> file in the project root before running the demo. The
+          variables below mirror the production configuration so you can make authenticated requests against the live API.
+        </p>
+        <CodeBlock
+          label=".env.local"
+          code={`CM_API_KEY=your-live-or-sandbox-key
+PARENT_BASE_URL=https://chosenmasters.com
+NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
+        />
+        <p>
+          Keep <code className="font-mono text-xs">CM_API_KEY</code> private—expose it only in server-side routes or scripts
+          that proxy requests. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code> variables are safe to surface in the
+          browser and power the waveform previews inside this documentation site.
+        </p>
+      </Section>
 
       <Section title="How the B2B flow works" defaultOpen>
         <ol className="list-decimal pl-5 space-y-2">
