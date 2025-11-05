@@ -89,6 +89,24 @@ function buildVariantsFrom(url) {
   return Array.from({ length: 5 }, (_, i) => `${base}_v${i + 1}.${ext}`);
 }
 
+function extractExtension(url) {
+  if (!url) return null;
+  const [path] = url.split("?");
+  const match = path.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function swapExtension(url, nextExt) {
+  if (!url || !nextExt) return url;
+  const normalized = nextExt.toLowerCase();
+  const [path, query] = url.split("?");
+  const extMatch = path.match(/\.([a-z0-9]+)$/i);
+  if (!extMatch) return url;
+  if (extMatch[1].toLowerCase() === normalized) return url;
+  const updatedPath = path.replace(/\.(mp3|wav|m4a|flac)$/i, `.${normalized}`);
+  return query ? `${updatedPath}?${query}` : updatedPath;
+}
+
 // Parent poller factory — pass a jobId; calls onDone(url, payload) when mastered
 function makeParentPoller({ jobId, setStatus, onDone }) {
   return () => {
@@ -155,6 +173,7 @@ export default function Page() {
   const [progress, setProgress] = useState(0);
   const [jobId, setJobId] = useState(null);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [downloadFormat, setDownloadFormat] = useState(null);
 
   // Player sources
   const [originalPreviewUrl, setOriginalPreviewUrl] = useState(null);
@@ -171,6 +190,73 @@ export default function Page() {
   const parentPollCancelRef = useRef(null);
   const cfPollCancelRef = useRef(null);
   const s3KeyRef = useRef(null);
+
+  const selectedMasteredUrl = useMemo(() => {
+    if (!masteredFiles.length) return null;
+    const safeIndex = Math.min(
+      Math.max(selectedMasteredIndex, 0),
+      masteredFiles.length - 1
+    );
+    return masteredFiles[safeIndex] || null;
+  }, [masteredFiles, selectedMasteredIndex]);
+
+  const baseDownloadExtension = useMemo(
+    () => extractExtension(selectedMasteredUrl),
+    [selectedMasteredUrl]
+  );
+
+  const availableDownloadFormats = useMemo(() => {
+    if (!selectedMasteredUrl) return [];
+    const options = [];
+    const seen = new Set();
+    const push = (value, label) => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    };
+
+    if (baseDownloadExtension) {
+      push(baseDownloadExtension, baseDownloadExtension.toUpperCase());
+    } else {
+      push("mp3", "MP3");
+    }
+
+    if (baseDownloadExtension !== "wav") {
+      push("wav", "WAV");
+    }
+
+    return options;
+  }, [baseDownloadExtension, selectedMasteredUrl]);
+
+  useEffect(() => {
+    if (!selectedMasteredUrl) {
+      setDownloadFormat(null);
+      setDownloadUrl(null);
+      return;
+    }
+
+    const ext = baseDownloadExtension || "mp3";
+    setDownloadFormat((prev) => {
+      if (!prev) return ext;
+      if (prev === "wav") return prev;
+      return ext;
+    });
+  }, [baseDownloadExtension, selectedMasteredUrl]);
+
+  useEffect(() => {
+    if (!selectedMasteredUrl) {
+      setDownloadUrl(null);
+      return;
+    }
+
+    const targetExt = (downloadFormat || baseDownloadExtension || "mp3").toLowerCase();
+    const currentExt = extractExtension(selectedMasteredUrl);
+    const nextUrl =
+      currentExt && currentExt === targetExt
+        ? selectedMasteredUrl
+        : swapExtension(selectedMasteredUrl, targetExt);
+    setDownloadUrl(nextUrl);
+  }, [baseDownloadExtension, downloadFormat, selectedMasteredUrl]);
 
   const onDrop = useCallback(
     (accepted) => {
@@ -199,6 +285,7 @@ export default function Page() {
       setProgress(0);
       setJobId(null);
       setDownloadUrl(null);
+      setDownloadFormat(null);
       setOriginalPreviewUrl(URL.createObjectURL(f));
       setMasteredFiles([]);
       setSelectedMasteredIndex(0);
@@ -262,7 +349,6 @@ export default function Page() {
           );
           setSelectedMasteredIndex(defIdx);
           setIsOriginal(false);
-          setDownloadUrl(urls[0]);
           setStatus("Intensity ladder ready.");
         }
       } else {
@@ -291,7 +377,6 @@ export default function Page() {
           if (Array.isArray(payload?.deliverables))
             log("deliverables:", payload.deliverables);
 
-          setDownloadUrl(url);
           const variants = buildVariantsFrom(url);
           setMasteredFiles(variants);
           setSelectedMasteredIndex(Math.min(1, variants.length - 1));
@@ -350,7 +435,6 @@ export default function Page() {
         );
 
         log("CF found urls:", sorted);
-        setDownloadUrl(sorted[0]);
         setMasteredFiles(sorted);
         setSelectedMasteredIndex(0);
         setIsOriginal(false);
@@ -922,6 +1006,45 @@ export default function Page() {
 
       {downloadUrl && (
         <div style={{ marginTop: 16 }}>
+          {availableDownloadFormats.length > 0 && (
+            <div
+              style={{
+                marginBottom: 8,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "#374151",
+              }}
+            >
+              <span>Download format:</span>
+              {availableDownloadFormats.length > 1 ? (
+                <select
+                  value={downloadFormat || availableDownloadFormats[0].value}
+                  onChange={(e) =>
+                    setDownloadFormat(e.target.value.toLowerCase())
+                  }
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "white",
+                    color: "#111827",
+                  }}
+                >
+                  {availableDownloadFormats.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span style={{ fontWeight: 500 }}>
+                  {availableDownloadFormats[0].label}
+                </span>
+              )}
+            </div>
+          )}
           <a
             href={downloadUrl}
             target="_blank"
@@ -934,6 +1057,11 @@ export default function Page() {
               color: "white",
               textDecoration: "none",
             }}
+            download={
+              title
+                ? `${title}.${(downloadFormat || baseDownloadExtension || "mp3").toLowerCase()}`
+                : undefined
+            }
           >
             Download Mastered File
           </a>
