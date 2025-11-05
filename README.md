@@ -45,6 +45,6 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 
 ## Additional resources
 
-- [Chosen Masters](https://chosenmasters.com) – Request access to the B2B mastering program.
+- [Chosen Masters](https://chosenmasters.com/ai-mastering-api) – Request access to the B2B mastering program.
 - [Next.js documentation](https://nextjs.org/docs) – Framework reference used by this project.
 
