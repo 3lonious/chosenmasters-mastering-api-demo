@@ -2,6 +2,8 @@
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+import { normalizeDomainFieldsForResponse } from "@/lib/domain";
+
 function setCors(res) {
   res.headers.set("Access-Control-Allow-Origin", "*");
   res.headers.set("Vary", "Origin");
@@ -102,7 +104,13 @@ export async function GET(request, context) {
     console.log("[/api/mastering/[jobId]] upstream body (peek):", peek);
   } catch {}
 
-  const r = new Response(text || "{}", {
+  let responseBody = text || "{}";
+  try {
+    const parsed = JSON.parse(responseBody);
+    responseBody = JSON.stringify(normalizeDomainFieldsForResponse(parsed));
+  } catch {}
+
+  const r = new Response(responseBody, {
     status: upstream.status || 502,
     headers: {
       "Content-Type": "application/json",

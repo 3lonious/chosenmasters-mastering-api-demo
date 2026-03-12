@@ -21,11 +21,17 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
    CM_API_KEY=
    PARENT_BASE_URL=https://chosenmasters.com
    NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net
+   LOCAL_TESTING_LIMIT_ENABLED=false
+   LOCAL_TESTING_MAX_REQUESTS_PER_HOUR=60
+   LOCAL_TESTING_MAX_SETUPS_PER_DAY=25
    ```
 
    - `CM_API_KEY` – Your private API key. Keep this secret and only reference it from server-side code.
    - `PARENT_BASE_URL` – The base domain for live API requests. Leave at the default unless you are targeting a staging stack.
    - `NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL` – Public CloudFront distribution used for streaming mastered previews.
+   - `LOCAL_TESTING_LIMIT_ENABLED` – Enables local/dev request safeguards when set to `true`.
+   - `LOCAL_TESTING_MAX_REQUESTS_PER_HOUR` – Maximum API setup/testing requests accepted per hour (default: `60`).
+   - `LOCAL_TESTING_MAX_SETUPS_PER_DAY` – Maximum setup flow requests accepted per day (default: `25`).
 
 3. Start the development server:
 
@@ -49,3 +55,11 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 - [Next.js documentation](https://nextjs.org/docs) – Framework reference used by this project.
 
 
+
+## Migration update
+
+- `domain` is now the canonical web field for mastering setup requests.
+- Legacy `website` is still accepted for backwards compatibility.
+- If both are provided, `domain` takes precedence and is echoed back as both `domain` and `website` in API responses.
+- Domain values are normalized server-side (trimmed + lowercased) and invalid values return 4xx validation errors.
+- Local testing safeguards can be enabled in non-production environments with the `LOCAL_TESTING_*` env vars above.

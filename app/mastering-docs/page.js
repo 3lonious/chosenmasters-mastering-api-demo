@@ -85,6 +85,9 @@ const res = await fetch('https://chosenmasters.com/api/b2b/mastering', {
     ext: 'wav',
     size: '5.4',
     mode: 'process', // required: process | lite | warm
+    domain: 'example.com', // preferred field
+    // website is still accepted for backwards compatibility.
+    // If both are sent, domain takes precedence.
     // No need to send a type flag—the API tags the job as B2B and deducts a credit when accepted.
   }),
 });
@@ -411,6 +414,9 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
           <code className="font-mono text-xs">POST /api/b2b/mastering</code>{" "}
           with the <code className="font-mono text-xs">s3Key</code> from the
           upload step. Choose a processing mode and send it in the request body.
+          Use <code className="font-mono text-xs">domain</code> as the
+          canonical web field (legacy <code className="font-mono text-xs">website</code>
+          is still accepted).
         </p>
         <p>
           The platform deducts one credit as soon as the job is accepted. A{" "}
