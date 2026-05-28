@@ -463,9 +463,12 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
             intensity levels with{" "}
             <span className="font-mono text-xs">level</span>,{" "}
             <span className="font-mono text-xs">available</span>,{" "}
-            <span className="font-mono text-xs">url</span>,{" "}
-            <span className="font-mono text-xs">expiresAt</span>, and{" "}
-            <span className="font-mono text-xs">type</span>.
+            <span className="font-mono text-xs">key</span>, and{" "}
+            <span className="font-mono text-xs">url</span>.
+          </li>
+          <li>
+            <span className="font-mono text-xs">expiresAt</span> – response-level
+            retention deadline for the original and mastered assets.
           </li>
           <li>
             <span className="font-mono text-xs">availableLevels</span> –
