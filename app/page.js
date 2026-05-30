@@ -169,6 +169,7 @@ export default function Page() {
   const [file, setFile] = useState(null);
   const [mode, setMode] = useState("process"); // process | lite | warm
   const [title, setTitle] = useState("");
+  const [domain, setDomain] = useState("");
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState(0);
   const [jobId, setJobId] = useState(null);
@@ -705,6 +706,7 @@ export default function Page() {
         sizeBytes: file.size,
         sizeMB,
         size: sizeMB,
+        domain: domain.trim().toLowerCase() || undefined,
       };
 
       console.log("Idempotency-Key:", idem);
@@ -906,6 +908,24 @@ export default function Page() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="My Track"
+          style={{
+            display: "block",
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+          }}
+        />
+      </label>
+
+
+      <label style={{ display: "block", marginBottom: 16 }}>
+        Domain (optional)
+        <input
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
+          placeholder="example.com"
           style={{
             display: "block",
             width: "100%",

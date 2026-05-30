@@ -2,6 +2,12 @@
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+import {
+  extractPreferredDomain,
+  normalizeDomainFieldsForResponse,
+} from "@/lib/domain";
+import { checkLocalTestingLimits } from "@/lib/local-testing-limits";
+
 function setCors(res) {
   res.headers.set("Access-Control-Allow-Origin", "*");
   res.headers.set("Vary", "Origin");
@@ -35,6 +41,16 @@ function redact(s) {
 }
 
 export async function POST(request) {
+  const limitError = checkLocalTestingLimits({ isSetupFlow: true });
+  if (limitError) {
+    const r = new Response(JSON.stringify(limitError), {
+      status: 429,
+      headers: { "Content-Type": "application/json" },
+    });
+    setCors(r);
+    return r;
+  }
+
   const parentBase = (
     process.env.PARENT_BASE_URL || "https://chosenmasters.com"
   ).replace(/\/+$/, "");
@@ -72,6 +88,17 @@ export async function POST(request) {
   const ext = (body.ext || (body.s3Key && body.s3Key.split(".").pop()) || "")
     .toLowerCase()
     .trim();
+
+  const domainResult = extractPreferredDomain(body || {});
+  if (domainResult.error) {
+    const r = new Response(JSON.stringify({ error: domainResult.error }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+    setCors(r);
+    return r;
+  }
+
   const sizeMB =
     typeof body.sizeMB === "number"
       ? body.sizeMB
@@ -88,6 +115,8 @@ export async function POST(request) {
     ext: ext || undefined,
     sizeMB: sizeMB ?? undefined,
     size: sizeMB ?? rest.size, // keep `size` in MB if present
+    domain: domainResult.domain,
+    website: domainResult.domain || rest.website,
   };
 
   console.log("[/api/mastering] parentBase:", parentBase);
@@ -157,7 +186,13 @@ export async function POST(request) {
     console.log("[/api/mastering] upstream body (peek):", pk);
   } catch {}
 
-  const r = new Response(text || "{}", {
+  let responseBody = text || "{}";
+  try {
+    const parsed = JSON.parse(responseBody);
+    responseBody = JSON.stringify(normalizeDomainFieldsForResponse(parsed));
+  } catch {}
+
+  const r = new Response(responseBody, {
     status: upstream.status,
     headers: {
       "Content-Type": "application/json",

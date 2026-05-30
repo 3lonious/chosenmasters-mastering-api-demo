@@ -2,6 +2,8 @@
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+import { checkLocalTestingLimits } from "@/lib/local-testing-limits";
+
 function setCors(res) {
   res.headers.set("Access-Control-Allow-Origin", "*");
   res.headers.set("Vary", "Origin");
@@ -27,6 +29,16 @@ function withTimeout(ms = 15000) {
 }
 
 export async function POST(request) {
+  const limitError = checkLocalTestingLimits({ isSetupFlow: true });
+  if (limitError) {
+    const r = new Response(JSON.stringify(limitError), {
+      status: 429,
+      headers: { "Content-Type": "application/json" },
+    });
+    setCors(r);
+    return r;
+  }
+
   // 1) Parse and validate body
   let body;
   try {
