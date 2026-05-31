@@ -49,12 +49,14 @@ function CodeBlock({ label, code }) {
 }
 
 const CODE_UPLOAD = `const API_KEY = process.env.CM_API_KEY;
+const API_DOMAIN = process.env.CM_API_DOMAIN; // e.g. https://app.example.com or http://localhost:3000
 
 const response = await fetch('https://chosenmasters.com/api/b2b/mastering/upload-url', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
     'x-api-key': API_KEY,
+    ...(API_DOMAIN ? { 'x-api-domain': API_DOMAIN } : {}),
   },
   body: JSON.stringify({
     fileName: 'mix.wav',
@@ -72,12 +74,14 @@ console.log('Upload using signed URL before it expires:', expiresIn, 'seconds');
 // PUT your file to uploadUrl with the provided headers before expiresIn seconds elapse.`;
 
 const CODE_SUBMIT = `const API_KEY = process.env.CM_API_KEY;
+const API_DOMAIN = process.env.CM_API_DOMAIN;
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
     'x-api-key': API_KEY,
+    ...(API_DOMAIN ? { 'x-api-domain': API_DOMAIN } : {}),
   },
   body: JSON.stringify({
     s3Key: 'path/to/file.wav',
@@ -103,9 +107,13 @@ if (data.expectedUrl) {
 }`;
 
 const CODE_STATUS = `const API_KEY = process.env.CM_API_KEY;
+const API_DOMAIN = process.env.CM_API_DOMAIN;
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering/' + jobId, {
-  headers: { 'x-api-key': API_KEY },
+  headers: {
+    'x-api-key': API_KEY,
+    ...(API_DOMAIN ? { 'x-api-domain': API_DOMAIN } : {}),
+  },
 });
 
 if (!res.ok) {
@@ -133,6 +141,7 @@ if (data.mastered && data.url) {
 
 /* --------------------- UPDATED POLLING SAMPLE (IMPORTANT) --------------------- */
 const CODE_AUDIO = `const API_KEY = process.env.CM_API_KEY;
+const API_DOMAIN = process.env.CM_API_DOMAIN;
 
 /**
  * Poll intensities until:
@@ -151,7 +160,10 @@ async function pollMasteredIntensities(jobId, { pollMs = 3000, graceMs = 30000 }
       'https://chosenmasters.com/api/b2b/mastering/' + jobId + '/audio?intensity=all',
       {
         mode: 'cors',
-        headers: { 'x-api-key': API_KEY },
+        headers: {
+          'x-api-key': API_KEY,
+          ...(API_DOMAIN ? { 'x-api-domain': API_DOMAIN } : {}),
+        },
       }
     );
 
@@ -273,6 +285,7 @@ export default function MasteringDocsPage() {
         <CodeBlock
           label=".env.local"
           code={`CM_API_KEY=your-live-or-sandbox-key
+CM_API_DOMAIN=http://localhost:3000
 PARENT_BASE_URL=https://chosenmasters.com
 NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         />
@@ -282,6 +295,15 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
           requests. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code>{" "}
           variables are safe to surface in the browser and power the waveform
           previews inside this documentation site.
+        </p>
+        <p>
+          Set <code className="font-mono text-xs">CM_API_DOMAIN</code> to{" "}
+          <code className="font-mono text-xs">http://localhost:3000</code> for
+          local testing or to your deployed app domain in production. Server-side
+          integrations should send this value as{" "}
+          <code className="font-mono text-xs">x-api-domain</code> because they
+          may not include a browser <code className="font-mono text-xs">Origin</code>{" "}
+          header.
         </p>
       </Section>
 
@@ -326,6 +348,11 @@ NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
           when a tenant runs out of credits. Any other non-2xx response
           indicates the request never reached the mastering engine and should be
           retried after addressing the returned error message.
+        </p>
+        <p>
+          Localhost testing uses a separate safety limit of 50 requests per
+          month per endpoint, API key, and public IP. That limit is not a
+          purchased-credit cap and does not apply to production-domain traffic.
         </p>
       </Section>
 

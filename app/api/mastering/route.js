@@ -1,4 +1,10 @@
 // app/api/mastering/route.js
+import {
+  buildMasteringHeaders,
+  resolveParentBase,
+  resolvePartnerKey,
+} from "@/lib/chosenMastersProxy";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -8,7 +14,7 @@ function setCors(res) {
   res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "content-type, x-api-key, authorization, idempotency-key, Idempotency-Key"
+    "content-type, x-api-key, x-api-domain, authorization, idempotency-key, Idempotency-Key"
   );
   res.headers.set("Access-Control-Max-Age", "86400");
   res.headers.set("Cache-Control", "no-store");
@@ -35,10 +41,8 @@ function redact(s) {
 }
 
 export async function POST(request) {
-  const parentBase = (
-    process.env.PARENT_BASE_URL || "https://chosenmasters.com"
-  ).replace(/\/+$/, "");
-  const partnerKey = process.env.CM_API_KEY || "";
+  const parentBase = resolveParentBase();
+  const partnerKey = resolvePartnerKey();
   const idem =
     request.headers.get("Idempotency-Key") ||
     request.headers.get("idempotency-key") ||
@@ -111,12 +115,10 @@ export async function POST(request) {
     console.warn("[/api/mastering] ping error:", e?.message || String(e));
   }
 
-  const headers = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "x-api-key": partnerKey,
-  };
-  if (idem) headers["Idempotency-Key"] = idem;
+  const headers = buildMasteringHeaders(request, {
+    contentType: true,
+    idempotencyKey: idem,
+  });
 
   const { signal, clear } = withTimeout(25000);
   let upstream;

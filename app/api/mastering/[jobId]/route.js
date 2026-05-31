@@ -1,4 +1,10 @@
 // app/api/mastering/[jobId]/route.js
+import {
+  buildMasteringHeaders,
+  resolveParentBase,
+  resolvePartnerKey,
+} from "@/lib/chosenMastersProxy";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -8,7 +14,7 @@ function setCors(res) {
   res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "content-type, x-api-key, authorization, idempotency-key, Idempotency-Key"
+    "content-type, x-api-key, x-api-domain, authorization, idempotency-key, Idempotency-Key"
   );
   res.headers.set("Access-Control-Max-Age", "86400");
   res.headers.set("Cache-Control", "no-store");
@@ -31,10 +37,8 @@ export async function GET(request, context) {
   if (params && typeof params.then === "function") params = await params;
 
   const jobId = params?.jobId;
-  const parentBase = (
-    process.env.PARENT_BASE_URL || "https://chosenmasters.com"
-  ).replace(/\/+$/, "");
-  const partnerKey = process.env.CM_API_KEY || "";
+  const parentBase = resolveParentBase();
+  const partnerKey = resolvePartnerKey();
 
   if (!jobId) {
     const r = new Response(JSON.stringify({ error: "Missing jobId" }), {
@@ -56,10 +60,7 @@ export async function GET(request, context) {
   console.log("[/api/mastering/[jobId]] parentBase:", parentBase);
   console.log("[/api/mastering/[jobId]] jobId:", jobId);
 
-  const hdrs = {
-    Accept: "application/json",
-    "x-api-key": partnerKey,
-  };
+  const hdrs = buildMasteringHeaders(request);
 
   const url = new URL(request.url);
   const qs = url.search || "";

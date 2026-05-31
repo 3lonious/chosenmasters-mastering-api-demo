@@ -1,4 +1,10 @@
 // app/api/upload-url/route.js
+import {
+  buildMasteringHeaders,
+  resolveParentBase,
+  resolvePartnerKey,
+} from "@/lib/chosenMastersProxy";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -8,7 +14,7 @@ function setCors(res) {
   res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "content-type, x-api-key, authorization"
+    "content-type, x-api-key, x-api-domain, authorization"
   );
   res.headers.set("Access-Control-Max-Age", "86400");
   res.headers.set("Cache-Control", "no-store");
@@ -56,10 +62,8 @@ export async function POST(request) {
   }
 
   // 2) Read env
-  const parentBase = (
-    process.env.PARENT_BASE_URL || "https://chosenmasters.com"
-  ).replace(/\/+$/, "");
-  const apiKey = process.env.CM_API_KEY || "";
+  const parentBase = resolveParentBase();
+  const apiKey = resolvePartnerKey();
 
   if (!apiKey) {
     const r = new Response(JSON.stringify({ error: "Missing CM_API_KEY" }), {
@@ -76,11 +80,7 @@ export async function POST(request) {
   try {
     upstream = await fetch(`${parentBase}/api/b2b/mastering/upload-url`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "x-api-key": apiKey,
-      },
+      headers: buildMasteringHeaders(request, { contentType: true }),
       body: JSON.stringify({ fileName, fileType }),
       cache: "no-store",
       signal,

@@ -19,11 +19,13 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 
    ```env
    CM_API_KEY=
+   CM_API_DOMAIN=http://localhost:3000
    PARENT_BASE_URL=https://chosenmasters.com
    NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net
    ```
 
    - `CM_API_KEY` – Your private API key. Keep this secret and only reference it from server-side code.
+   - `CM_API_DOMAIN` – Domain sent to the live API for domain verification. Use `http://localhost:3000` for local testing, or your deployed app domain in production. If omitted, the proxy infers it from the incoming request.
    - `PARENT_BASE_URL` – The base domain for live API requests. Leave at the default unless you are targeting a staging stack.
    - `NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL` – Public CloudFront distribution used for streaming mastered previews.
 
@@ -34,6 +36,18 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000) to view the demo. The interactive documentation is available at `/mastering-docs` and reflects the current production flow.
+
+## Domain verification and local limits
+
+The live API accepts `x-api-key` for authentication and `x-api-domain` for
+domain verification. Browser-only integrations normally provide an `Origin`
+header automatically, but this demo uses server-side proxy routes, so the proxy
+sends `x-api-domain` explicitly.
+
+For local testing, use `CM_API_DOMAIN=http://localhost:3000`. Localhost calls
+are limited by the live API to 50 requests per month per endpoint, API key, and
+public IP address. This is not a global per-account mastering limit and does
+not replace purchased credits.
 
 ## Useful scripts
 
@@ -47,5 +61,4 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 
 - [Chosen Masters](https://chosenmasters.com/ai-mastering-api) – Request access to the B2B mastering program.
 - [Next.js documentation](https://nextjs.org/docs) – Framework reference used by this project.
-
 

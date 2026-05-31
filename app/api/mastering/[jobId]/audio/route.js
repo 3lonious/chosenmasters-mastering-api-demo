@@ -1,4 +1,10 @@
 // app/api/mastering/[jobId]/audio/route.js
+import {
+  buildMasteringHeaders,
+  resolveParentBase,
+  resolvePartnerKey,
+} from "@/lib/chosenMastersProxy";
+
 export const runtime = "nodejs";
 
 function setCors(res) {
@@ -7,7 +13,7 @@ function setCors(res) {
   res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "content-type, x-api-key, authorization"
+    "content-type, x-api-key, x-api-domain, authorization"
   );
   res.headers.set("Access-Control-Max-Age", "86400");
   res.headers.set("Cache-Control", "no-store");
@@ -24,10 +30,8 @@ export async function GET(req, context) {
   if (params && typeof params.then === "function") params = await params;
 
   const jobId = params?.jobId;
-  const parentBase = (
-    process.env.PARENT_BASE_URL || "https://chosenmasters.com"
-  ).replace(/\/+$/, "");
-  const partnerKey = process.env.CM_API_KEY || "";
+  const parentBase = resolveParentBase();
+  const partnerKey = resolvePartnerKey();
 
   if (!jobId) {
     const r = new Response(JSON.stringify({ error: "Missing jobId" }), {
@@ -54,7 +58,7 @@ export async function GET(req, context) {
       `${parentBase}/api/b2b/mastering/${encodeURIComponent(jobId)}/audio${qs}`,
       {
         method: "GET",
-        headers: { "x-api-key": partnerKey, Accept: "application/json" },
+        headers: buildMasteringHeaders(req),
         cache: "no-store",
       }
     );
