@@ -49,7 +49,7 @@ function CodeBlock({ label, code }) {
 }
 
 const CODE_UPLOAD = `const API_KEY = process.env.CM_API_KEY;
-const API_DOMAIN = process.env.CM_API_DOMAIN; // e.g. https://app.example.com or http://localhost:3000
+const API_DOMAIN = process.env.CM_API_DOMAIN; // Optional server-proxy override
 
 const response = await fetch('https://chosenmasters.com/api/b2b/mastering/upload-url', {
   method: 'POST',
@@ -74,7 +74,7 @@ console.log('Upload using signed URL before it expires:', expiresIn, 'seconds');
 // PUT your file to uploadUrl with the provided headers before expiresIn seconds elapse.`;
 
 const CODE_SUBMIT = `const API_KEY = process.env.CM_API_KEY;
-const API_DOMAIN = process.env.CM_API_DOMAIN;
+const API_DOMAIN = process.env.CM_API_DOMAIN; // Optional server-proxy override
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering', {
   method: 'POST',
@@ -107,7 +107,7 @@ if (data.expectedUrl) {
 }`;
 
 const CODE_STATUS = `const API_KEY = process.env.CM_API_KEY;
-const API_DOMAIN = process.env.CM_API_DOMAIN;
+const API_DOMAIN = process.env.CM_API_DOMAIN; // Optional server-proxy override
 
 const res = await fetch('https://chosenmasters.com/api/b2b/mastering/' + jobId, {
   headers: {
@@ -141,7 +141,7 @@ if (data.mastered && data.url) {
 
 /* --------------------- UPDATED POLLING SAMPLE (IMPORTANT) --------------------- */
 const CODE_AUDIO = `const API_KEY = process.env.CM_API_KEY;
-const API_DOMAIN = process.env.CM_API_DOMAIN;
+const API_DOMAIN = process.env.CM_API_DOMAIN; // Optional server-proxy override
 
 /**
  * Poll intensities until:
@@ -285,25 +285,30 @@ export default function MasteringDocsPage() {
         <CodeBlock
           label=".env.local"
           code={`CM_API_KEY=your-live-or-sandbox-key
-CM_API_DOMAIN=http://localhost:3000
+# Optional: override the domain signal sent by the server proxy.
+# If omitted, the proxy infers the current demo app origin.
+# CM_API_DOMAIN=http://localhost:3000
 PARENT_BASE_URL=https://chosenmasters.com
 NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net`}
         />
         <p>
           Keep <code className="font-mono text-xs">CM_API_KEY</code>{" "}
           private—expose it only in server-side routes or scripts that proxy
-          requests. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code>{" "}
+          requests. The demo frontend calls local Next API routes; it does not
+          send <code className="font-mono text-xs">x-api-domain</code> from
+          browser code. The <code className="font-mono text-xs">NEXT_PUBLIC_*</code>{" "}
           variables are safe to surface in the browser and power the waveform
           previews inside this documentation site.
         </p>
         <p>
-          Set <code className="font-mono text-xs">CM_API_DOMAIN</code> to{" "}
-          <code className="font-mono text-xs">http://localhost:3000</code> for
-          local testing or to your deployed app domain in production. Server-side
-          integrations should send this value as{" "}
-          <code className="font-mono text-xs">x-api-domain</code> because they
-          may not include a browser <code className="font-mono text-xs">Origin</code>{" "}
-          header.
+          Users save their allowed API domain in the Chosen Masters web portal.
+          Browser integrations are verified with <code className="font-mono text-xs">Origin</code>{" "}
+          or <code className="font-mono text-xs">Referer</code>. This demo keeps
+          the API key server-side, so its proxy routes send a domain signal
+          upstream automatically. Set <code className="font-mono text-xs">CM_API_DOMAIN</code>{" "}
+          only when you want to override the inferred demo app origin, such as
+          forcing <code className="font-mono text-xs">http://localhost:3000</code>{" "}
+          for local testing.
         </p>
       </Section>
 

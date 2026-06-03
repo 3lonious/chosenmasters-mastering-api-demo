@@ -19,13 +19,15 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 
    ```env
    CM_API_KEY=
-   CM_API_DOMAIN=http://localhost:3000
+   # Optional: override the domain signal sent by the server proxy.
+   # If omitted, the proxy infers the current demo app origin.
+   # CM_API_DOMAIN=http://localhost:3000
    PARENT_BASE_URL=https://chosenmasters.com
    NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL=https://d2ojxa09qsr6gy.cloudfront.net
    ```
 
    - `CM_API_KEY` – Your private API key. Keep this secret and only reference it from server-side code.
-   - `CM_API_DOMAIN` – Domain sent to the live API for domain verification. Use `http://localhost:3000` for local testing, or your deployed app domain in production. If omitted, the proxy infers it from the incoming request.
+   - `CM_API_DOMAIN` – Optional domain override sent by the server proxy for domain verification. Use `http://localhost:3000` for local testing if you want to force localhost binding, or your deployed app domain in production. If omitted, the proxy infers the current request origin/host.
    - `PARENT_BASE_URL` – The base domain for live API requests. Leave at the default unless you are targeting a staging stack.
    - `NEXT_PUBLIC_MASTERING_CLOUDFRONT_URL` – Public CloudFront distribution used for streaming mastered previews.
 
@@ -39,15 +41,18 @@ This repository hosts the demo application for the Chosen Masters B2B mastering 
 
 ## Domain verification and local limits
 
-The live API accepts `x-api-key` for authentication and `x-api-domain` for
-domain verification. Browser-only integrations normally provide an `Origin`
-header automatically, but this demo uses server-side proxy routes, so the proxy
-sends `x-api-domain` explicitly.
+Users set their allowed API domain in the Chosen Masters web portal. Browser
+integrations are verified with the browser `Origin`/`Referer`, so frontend code
+does not need to send `x-api-domain`. This demo uses server-side proxy routes to
+keep `CM_API_KEY` private; those proxy routes send a domain signal upstream
+automatically, using `CM_API_DOMAIN` when configured or the incoming request
+origin/host when it is not.
 
-For local testing, use `CM_API_DOMAIN=http://localhost:3000`. Localhost calls
-are limited by the live API to 50 requests per month per endpoint, API key, and
-public IP address. This is not a global per-account mastering limit and does
-not replace purchased credits.
+For local testing, set the portal domain to `localhost` or configure
+`CM_API_DOMAIN=http://localhost:3000`. Localhost calls are limited by the live
+API to 50 requests per month per endpoint, API key, and public IP address. This
+is not a global per-account mastering limit and does not replace purchased
+credits.
 
 ## Useful scripts
 
@@ -61,4 +66,3 @@ not replace purchased credits.
 
 - [Chosen Masters](https://chosenmasters.com/ai-mastering-api) – Request access to the B2B mastering program.
 - [Next.js documentation](https://nextjs.org/docs) – Framework reference used by this project.
-
